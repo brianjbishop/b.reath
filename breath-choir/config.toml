@@ -1,0 +1,98 @@
+version = 1
+controller_id = "rose-01"
+
+[input]
+mode = "osc"
+osc_port = 8000
+source_filter = "all"
+ble_address = ""
+ble_auto_connect = false
+
+[signal]
+smoothing_kind = "ema"
+smoothing_alpha = 0.25
+baseline_enabled = true
+baseline_alpha = 0.01
+gain = 1.0
+deadzone = 0.019999999552965164
+
+[detection]
+derivative_enabled = true
+derivative_smoothing_alpha = 0.2
+inhale_enter_amp = 0.07999999821186066
+exhale_enter_amp = 0.07999999821186066
+rest_enter_amp = 0.03999999910593033
+slope_enter_abs = 0.07999999821186066
+slope_rest_abs = 0.029999999329447746
+hysteresis = 0.019999999552965164
+min_phase_ms = 120
+
+[midi]
+out_port = "IAC Driver BreathMIDI"
+channel = 0
+default_velocity = 100
+cc_rate_hz = 30
+
+[triggers.inhale_onset]
+enabled = true
+note = 65
+velocity = 100
+debounce_ms = 200
+
+[triggers.exhale_onset]
+enabled = true
+note = 62
+velocity = 100
+debounce_ms = 200
+
+[triggers.inhale_sustain]
+enabled = false
+cc = 8
+min_value = 0
+max_value = 127
+curve_kind = "gamma"
+curve_gamma = 1.0
+
+[triggers.exhale_sustain]
+enabled = false
+cc = 2
+min_value = 0
+max_value = 127
+curve_kind = "gamma"
+curve_gamma = 1.0
+
+[triggers.consistent_breaths]
+enabled = true
+n = 5
+min_cycles_before_eval = 3
+period_tol_kind = "relative"
+period_tol_value = 0.550000011920929
+peak_tol_kind = "absolute"
+peak_tol_value = 0.6000000238418579
+note = 64
+velocity = 110
+
+[ui]
+window_width = 1512
+window_height = 916
+window_x = 0
+window_y = 66
+left_panel_open = true
+right_panel_open = true
+
+[ui.midi_activity]
+held_dim_rgba = [
+    55,
+    55,
+    50,
+    255,
+]
+held_lit_rgba = [
+    220,
+    180,
+    70,
+    255,
+]
+velocity_bar_h = 6
+cc_bar_h = 8
+show_note_name = false
