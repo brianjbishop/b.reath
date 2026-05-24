@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  rose_breath / index.html  —  live breath visualization
+
+  HOW TO RUN:
+    1. Start the bridge:   python osc_ws_bridge.py   (from the breath-choir directory)
+    2. Open this file in a browser — file:// works, no local server needed.
+
+  PHONES:
+    Phones must be connected to the TP-Link router.
+    TOTEM must send OSC to this Mac's static IP on port 8001.
+    The bridge listens on port 8001 and relays each breath value here
+    via WebSocket on ws://localhost:8765.
+-->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rose Breath</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; overflow: hidden; }
+  </style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WS_URL       = 'ws://localhost:8765';
+const LERP_FACTOR  = 0.08;
+const TIMEOUT_MS   = 5000;
+const RECONNECT_MS = 2000;
+const GOLDEN       = 0.618033988749895;  // golden ratio conjugate
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Device state
+// ─────────────────────────────────────────────────────────────────────────────
+
+const devices  = {};   // uuid → { displayedValue, targetValue, colorIndex, lastSeen, removing }
+const colorMap = {};   // uuid → colorIndex  (persists for the session)
+let   nextColorIndex = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WebSocket
+// ─────────────────────────────────────────────────────────────────────────────
+
+let ws          = null;
+let wsConnected = false;
+
+function connectWS() {
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    setTimeout(connectWS, RECONNECT_MS);
+    return;
+  }
+
+  ws.onopen = () => {
+    wsConnected = true;
+  };
+
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+
+    if (msg.disconnected) {
+      if (devices[msg.uuid]) devices[msg.uuid].removing = true;
+      return;
+    }
+
+    const { uuid, value } = msg;
+
+    if (colorMap[uuid] === undefined) colorMap[uuid] = nextColorIndex++;
+
+    if (!devices[uuid]) {
+      devices[uuid] = {
+        displayedValue: 0,
+        targetValue:    0,
+        colorIndex:     colorMap[uuid],
+        lastSeen:       Date.now(),
+        removing:       false,
+      };
+    }
+
+    devices[uuid].targetValue = value;
+    devices[uuid].lastSeen    = Date.now();
+    devices[uuid].removing    = false;
+  };
+
+  ws.onclose = ws.onerror = () => {
+    wsConnected = false;
+    setTimeout(connectWS, RECONNECT_MS);
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Color helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Returns [r, g, b, a] (0–255) from HSV+alpha (all inputs 0–1)
+function hsvaToRGBA(h, s, v, a) {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  let r, g, b;
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+  }
+  return [r * 255, g * 255, b * 255, a * 255];
+}
+
+function deviceColor(colorIndex, alpha) {
+  const hue = (colorIndex * GOLDEN) % 1.0;
+  return hsvaToRGBA(hue, 0.75, 0.85, alpha);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Petal drawing
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Draws a petal along the +x axis from (0,0) to (len, 0).
+// halfW is the half-width at the widest point.
+// Caller must push/translate/rotate before calling, and pop after.
+function petalShape(len, halfW) {
+  beginShape();
+  vertex(0, 0);
+  bezierVertex(len * 0.25, -halfW,  len * 0.75, -halfW,  len, 0);
+  bezierVertex(len * 0.75,  halfW,  len * 0.25,  halfW,  0,   0);
+  endShape(CLOSE);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  p5 sketch
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  connectWS();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function draw() {
+  background(10);   // #0a0a0a
+
+  const now = Date.now();
+  const cx  = width  / 2;
+  const cy  = height / 2;
+
+  // Mark devices that have gone silent
+  for (const uuid in devices) {
+    const d = devices[uuid];
+    if (!d.removing && now - d.lastSeen > TIMEOUT_MS) d.removing = true;
+  }
+
+  // Advance lerp; collect petals whose fade-out is complete
+  const dead = [];
+  for (const uuid in devices) {
+    const d      = devices[uuid];
+    const target = d.removing ? 0 : d.targetValue;
+    d.displayedValue = lerp(d.displayedValue, target, LERP_FACTOR);
+    if (d.removing && d.displayedValue < 0.004) dead.push(uuid);
+  }
+  for (const uuid of dead) delete devices[uuid];
+
+  // Stable petal order: sort by colorIndex (order of first appearance)
+  const uuids = Object.keys(devices).sort(
+    (a, b) => devices[a].colorIndex - devices[b].colorIndex
+  );
+  const n = uuids.length;
+
+  // Base petal dimensions, auto-scaled by device count
+  const maxLen  = height * 0.40;
+  const minLen  = height * 0.15;
+  const baseLen = n < 1
+    ? maxLen
+    : constrain(map(n, 1, 12, maxLen, minLen), minLen, maxLen);
+
+  // Maximum half-width: constrained so adjacent petals don't overlap
+  const maxHalfW = n < 2
+    ? baseLen * 0.22
+    : baseLen * sin(PI / n) * 0.42;
+
+  // Draw petals
+  for (let i = 0; i < n; i++) {
+    const uuid  = uuids[i];
+    const d     = devices[uuid];
+    const v     = d.displayedValue;
+
+    // Radial angle: 0 = top, clockwise
+    const angle = (TWO_PI / n) * i - HALF_PI;
+
+    const petalLen = baseLen  * (0.08 + 0.92 * v);
+    const halfW    = maxHalfW * (0.15 + 0.85 * v);
+
+    const fillC   = deviceColor(d.colorIndex, 0.80);
+    const strokeC = deviceColor(d.colorIndex, 1.00);
+
+    push();
+    translate(cx, cy);
+    rotate(angle);
+    fill(...fillC);
+    stroke(...strokeC);
+    strokeWeight(1.5);
+    petalShape(petalLen, halfW);
+    pop();
+  }
+
+  // Center circle
+  noStroke();
+  fill(255, 255, 255, 230);
+  circle(cx, cy, 24);
+
+  // Status overlay — bottom left
+  const liveCount = Object.values(devices).filter(d => !d.removing).length;
+  fill(255, 255, 255, 127);
+  noStroke();
+  textFont('monospace');
+  textSize(12);
+  text(`devices: ${liveCount}`, 16, height - 28);
+  text(`port: 8001`,            16, height - 12);
+
+  // Reconnect indicator — top left
+  if (!wsConnected) {
+    fill(255, 70, 70, 210);
+    textSize(12);
+    text('● reconnecting…', 16, 20);
+  }
+}
+</script>
+</body>
+</html>
