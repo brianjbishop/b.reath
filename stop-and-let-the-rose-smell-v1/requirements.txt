@@ -1,0 +1,6 @@
+mido
+python-rtmidi
+dearpygui
+tomli-w
+bleak
+screeninfo
