@@ -1,0 +1,30 @@
+# Python
+**/.venv/
+**/.venv.bak*/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.egg-info/
+**/dist/
+**/build/
+
+# Logs
+**/*.log
+
+# macOS
+**/.DS_Store
+**/.AppleDouble
+
+# Large media — host separately (YouTube, SoundCloud, etc.)
+**/*.mov
+**/stems/
+**/*.asd
+**/*.als
+
+# IDE / editor artifacts
+**/.cursor/
+**/.idea/
+**/*.swp
+
+# Claude local settings
+**/.claude/settings.local.json
