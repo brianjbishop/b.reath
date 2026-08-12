@@ -3,20 +3,21 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
-from breath_midi.types import Phase
 from breath_midi.ui.qr import show_qr_popup
+from breath_midi.ui.widgets.phase_rhombus import (
+    build_phase_rhombus,
+    refresh_phase_rhombus,
+)
 
 _CARD_W = 340
-_CARD_H = 230
+# The rhombus row is taller than the single row of In/Ex squares it replaced.
+_CARD_H = 258
 _PLOT_H = 120
-_INDICATOR_SIZE = 14
 _COLS = 4
 _LEFT_W = 180
 _RIGHT_W = 200
 
-# Colors
-_GRAY_INACTIVE = (80, 80, 80, 255)
-_PAUSED_COLOR = (200, 200, 200, 255)  # dim white — device connected but not sending
+# Colors.  Phase-vertex colors live in ui.widgets.phase_rhombus.
 _PLACEHOLDER_COLOR = (160, 160, 160)
 
 
@@ -170,22 +171,18 @@ class EveryBreathTab:
     ) -> None:
         card_tag = f"eb_card_{snap.uuid}"
         wave_tag = f"eb_wave_{snap.uuid}"
-        inhale_tag = f"eb_inhale_{snap.uuid}"
-        exhale_tag = f"eb_exhale_{snap.uuid}"
+        rhombus_prefix = f"eb_rh_{snap.uuid}"
         inote_tag = f"eb_inote_{snap.uuid}"
         enote_tag = f"eb_enote_{snap.uuid}"
+        hfnote_tag = f"eb_hfnote_{snap.uuid}"
+        henote_tag = f"eb_henote_{snap.uuid}"
+        hfen_tag = f"eb_hfen_{snap.uuid}"
+        heen_tag = f"eb_heen_{snap.uuid}"
         name_tag = f"eb_name_{snap.uuid}"
         mute_tag = f"eb_mute_{snap.uuid}"
         solo_tag = f"eb_solo_{snap.uuid}"
         up_tag = f"eb_up_{snap.uuid}"
         dn_tag = f"eb_dn_{snap.uuid}"
-
-        if not snap.active:
-            inhale_color = list(_PAUSED_COLOR)
-            exhale_color = list(_PAUSED_COLOR)
-        else:
-            inhale_color = [*snap.color, 255] if snap.phase == Phase.INHALE else list(_GRAY_INACTIVE)
-            exhale_color = [*snap.color, 255] if snap.phase == Phase.EXHALE else list(_GRAY_INACTIVE)
 
         uuid = snap.uuid  # capture for closures
 
@@ -259,51 +256,81 @@ class EveryBreathTab:
                     device_theme if snap.soloed else "theme_circle_gray",
                 )
 
-            # ── Row 2: In [■] [note]   Ex [■] [note] ────────────────────────
+            # ── Row 2: phase rhombus | the four phase notes ──────────────────
+            # The diamond replaces the old In/Ex squares; the notes sit beside
+            # it in the same clockwise order the cycle runs.
             with dpg.group(horizontal=True):
-                dpg.add_text("In", color=(200, 200, 200))
-                dpg.add_spacer(width=2)
-                with dpg.drawlist(width=_INDICATOR_SIZE, height=_INDICATOR_SIZE):
-                    dpg.draw_rectangle(
-                        pmin=(0, 0),
-                        pmax=(_INDICATOR_SIZE, _INDICATOR_SIZE),
-                        fill=inhale_color,
-                        color=(0, 0, 0, 0),
-                        tag=inhale_tag,
-                    )
-                dpg.add_input_int(
-                    tag=inote_tag,
-                    default_value=snap.inhale_note,
-                    width=52,
-                    min_value=0,
-                    max_value=127,
-                    step=0,
-                    on_enter=True,
-                    callback=lambda s, a, u: self._on_inhale_note_edit(s, a, u),
-                    user_data=uuid,
+                build_phase_rhombus(
+                    prefix=rhombus_prefix,
+                    phase=snap.phase,
+                    color=snap.color,
+                    active=snap.active,
                 )
-                dpg.add_spacer(width=6)
-                dpg.add_text("Ex", color=(200, 200, 200))
-                dpg.add_spacer(width=2)
-                with dpg.drawlist(width=_INDICATOR_SIZE, height=_INDICATOR_SIZE):
-                    dpg.draw_rectangle(
-                        pmin=(0, 0),
-                        pmax=(_INDICATOR_SIZE, _INDICATOR_SIZE),
-                        fill=exhale_color,
-                        color=(0, 0, 0, 0),
-                        tag=exhale_tag,
-                    )
-                dpg.add_input_int(
-                    tag=enote_tag,
-                    default_value=snap.exhale_note,
-                    width=52,
-                    min_value=0,
-                    max_value=127,
-                    step=0,
-                    on_enter=True,
-                    callback=lambda s, a, u: self._on_exhale_note_edit(s, a, u),
-                    user_data=uuid,
-                )
+                dpg.add_spacer(width=4)
+                with dpg.group():
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("In", color=(200, 200, 200))
+                        dpg.add_input_int(
+                            tag=inote_tag,
+                            default_value=snap.inhale_note,
+                            width=52,
+                            min_value=0,
+                            max_value=127,
+                            step=0,
+                            on_enter=True,
+                            callback=lambda s, a, u: self._on_inhale_note_edit(s, a, u),
+                            user_data=uuid,
+                        )
+                        dpg.add_spacer(width=6)
+                        dpg.add_text("Ex", color=(200, 200, 200))
+                        dpg.add_input_int(
+                            tag=enote_tag,
+                            default_value=snap.exhale_note,
+                            width=52,
+                            min_value=0,
+                            max_value=127,
+                            step=0,
+                            on_enter=True,
+                            callback=lambda s, a, u: self._on_exhale_note_edit(s, a, u),
+                            user_data=uuid,
+                        )
+                    # Holds are opt-in per device — the checkbox gates the note.
+                    with dpg.group(horizontal=True):
+                        dpg.add_checkbox(
+                            tag=hfen_tag,
+                            default_value=snap.hold_full_enabled,
+                            callback=lambda s, a, u: self._on_hold_full_enabled(s, a, u),
+                            user_data=uuid,
+                        )
+                        dpg.add_input_int(
+                            tag=hfnote_tag,
+                            default_value=snap.hold_full_note,
+                            width=52,
+                            min_value=0,
+                            max_value=127,
+                            step=0,
+                            on_enter=True,
+                            callback=lambda s, a, u: self._on_hold_full_note_edit(s, a, u),
+                            user_data=uuid,
+                        )
+                        dpg.add_spacer(width=6)
+                        dpg.add_checkbox(
+                            tag=heen_tag,
+                            default_value=snap.hold_empty_enabled,
+                            callback=lambda s, a, u: self._on_hold_empty_enabled(s, a, u),
+                            user_data=uuid,
+                        )
+                        dpg.add_input_int(
+                            tag=henote_tag,
+                            default_value=snap.hold_empty_note,
+                            width=52,
+                            min_value=0,
+                            max_value=127,
+                            step=0,
+                            on_enter=True,
+                            callback=lambda s, a, u: self._on_hold_empty_note_edit(s, a, u),
+                            user_data=uuid,
+                        )
 
             # ── Waveform plot ─────────────────────────────────────────────────
             # Line color is set to snap.color at build time so waveform,
@@ -350,10 +377,13 @@ class EveryBreathTab:
     def _refresh_cards(self, snapshots: list[DeviceUISnapshot]) -> None:
         for snap in snapshots:
             wave_tag = f"eb_wave_{snap.uuid}"
-            inhale_tag = f"eb_inhale_{snap.uuid}"
-            exhale_tag = f"eb_exhale_{snap.uuid}"
+            rhombus_prefix = f"eb_rh_{snap.uuid}"
             inote_tag = f"eb_inote_{snap.uuid}"
             enote_tag = f"eb_enote_{snap.uuid}"
+            hfnote_tag = f"eb_hfnote_{snap.uuid}"
+            henote_tag = f"eb_henote_{snap.uuid}"
+            hfen_tag = f"eb_hfen_{snap.uuid}"
+            heen_tag = f"eb_heen_{snap.uuid}"
             mute_tag = f"eb_mute_{snap.uuid}"
             solo_tag = f"eb_solo_{snap.uuid}"
             name_tag = f"eb_name_{snap.uuid}"
@@ -362,20 +392,13 @@ class EveryBreathTab:
                 xs = list(range(len(snap.waveform)))
                 dpg.set_value(wave_tag, [xs, list(snap.waveform)])
 
-            # Indicators: dim white when paused, phase color when active
-            if dpg.does_item_exist(inhale_tag):
-                if not snap.active:
-                    fill = list(_PAUSED_COLOR)
-                else:
-                    fill = [*snap.color, 255] if snap.phase == Phase.INHALE else list(_GRAY_INACTIVE)
-                dpg.configure_item(inhale_tag, fill=fill)
-
-            if dpg.does_item_exist(exhale_tag):
-                if not snap.active:
-                    fill = list(_PAUSED_COLOR)
-                else:
-                    fill = [*snap.color, 255] if snap.phase == Phase.EXHALE else list(_GRAY_INACTIVE)
-                dpg.configure_item(exhale_tag, fill=fill)
+            # Phase vertices: dim white when paused, device color when active
+            refresh_phase_rhombus(
+                prefix=rhombus_prefix,
+                phase=snap.phase,
+                color=snap.color,
+                active=snap.active,
+            )
 
             device_theme = self._device_theme_tags.get(snap.uuid)
             if device_theme is not None:
@@ -395,6 +418,22 @@ class EveryBreathTab:
             if dpg.does_item_exist(enote_tag):
                 if int(dpg.get_value(enote_tag)) != snap.exhale_note:
                     dpg.set_value(enote_tag, snap.exhale_note)
+
+            if dpg.does_item_exist(hfnote_tag):
+                if int(dpg.get_value(hfnote_tag)) != snap.hold_full_note:
+                    dpg.set_value(hfnote_tag, snap.hold_full_note)
+
+            if dpg.does_item_exist(henote_tag):
+                if int(dpg.get_value(henote_tag)) != snap.hold_empty_note:
+                    dpg.set_value(henote_tag, snap.hold_empty_note)
+
+            if dpg.does_item_exist(hfen_tag):
+                if bool(dpg.get_value(hfen_tag)) != snap.hold_full_enabled:
+                    dpg.set_value(hfen_tag, snap.hold_full_enabled)
+
+            if dpg.does_item_exist(heen_tag):
+                if bool(dpg.get_value(heen_tag)) != snap.hold_empty_enabled:
+                    dpg.set_value(heen_tag, snap.hold_empty_enabled)
 
     # ── interaction callbacks ─────────────────────────────────────────────────
 
@@ -425,4 +464,16 @@ class EveryBreathTab:
         entry = self._hub.registry.get(uuid)
         if entry is not None:
             self._hub.set_device_notes(uuid, entry.inhale_note, int(app_data))
+
+    def _on_hold_full_note_edit(self, sender: int | str, app_data: int, user_data: str) -> None:
+        self._hub.set_hold_full_number(str(user_data), int(app_data))
+
+    def _on_hold_empty_note_edit(self, sender: int | str, app_data: int, user_data: str) -> None:
+        self._hub.set_hold_empty_number(str(user_data), int(app_data))
+
+    def _on_hold_full_enabled(self, sender: int | str, app_data: bool, user_data: str) -> None:
+        self._hub.set_hold_full_enabled(str(user_data), bool(app_data))
+
+    def _on_hold_empty_enabled(self, sender: int | str, app_data: bool, user_data: str) -> None:
+        self._hub.set_hold_empty_enabled(str(user_data), bool(app_data))
 

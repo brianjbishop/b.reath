@@ -33,6 +33,15 @@ class DetectionConfig:
     slope_rest_abs: float
     hysteresis: float
     min_phase_ms: int
+    # Hold detection.  A hold is a breath that barely moves for min_hold_ms;
+    # the allowed movement is slope_rest_abs * min_hold_ms.  min_phase_ms is far
+    # too short to use here — hence a separate, much longer knob.
+    #
+    # 1000ms is deliberate rather than conservative.  The turnaround of a very
+    # slow deep breath is near-stationary for roughly half a second, so a
+    # shorter window cannot tell a deliberate hold from ordinary slow breathing.
+    hold_enabled: bool = True
+    min_hold_ms: int = 1000
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,20 @@ class InhaleOnsetTriggerConfig:
 
 @dataclass(frozen=True)
 class ExhaleOnsetTriggerConfig:
+    enabled: bool
+    note: int
+    velocity: int
+    debounce_ms: int
+
+
+@dataclass(frozen=True)
+class HoldOnsetTriggerConfig:
+    """
+    Fires when the FSM commits to a breath hold.  Disabled by default: holds
+    are additive, so an existing set keeps its exact inhale/exhale output until
+    a hold is deliberately switched on.
+    """
+
     enabled: bool
     note: int
     velocity: int
@@ -89,6 +112,16 @@ class TriggersConfig:
     inhale_sustain: SustainTriggerConfig
     exhale_sustain: SustainTriggerConfig
     consistent_breaths: ConsistentBreathsTriggerConfig
+    hold_full_onset: HoldOnsetTriggerConfig = field(
+        default_factory=lambda: HoldOnsetTriggerConfig(
+            enabled=False, note=67, velocity=100, debounce_ms=200
+        )
+    )
+    hold_empty_onset: HoldOnsetTriggerConfig = field(
+        default_factory=lambda: HoldOnsetTriggerConfig(
+            enabled=False, note=60, velocity=100, debounce_ms=200
+        )
+    )
 
 
 @dataclass(frozen=True)

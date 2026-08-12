@@ -23,9 +23,11 @@ inhale_enter_amp = 0.07999999821186066
 exhale_enter_amp = 0.07999999821186066
 rest_enter_amp = 0.03999999910593033
 slope_enter_abs = 0.07999999821186066
-slope_rest_abs = 0.029999999329447746
+slope_rest_abs = 0.015
 hysteresis = 0.019999999552965164
 min_phase_ms = 120
+hold_enabled = true
+min_hold_ms = 1000
 
 [midi]
 out_port = "IAC Driver BreathMIDI"
@@ -71,6 +73,18 @@ peak_tol_kind = "absolute"
 peak_tol_value = 0.6000000238418579
 note = 64
 velocity = 110
+
+[triggers.hold_full_onset]
+enabled = false
+note = 67
+velocity = 100
+debounce_ms = 200
+
+[triggers.hold_empty_onset]
+enabled = false
+note = 60
+velocity = 100
+debounce_ms = 200
 
 [ui]
 window_width = 1800

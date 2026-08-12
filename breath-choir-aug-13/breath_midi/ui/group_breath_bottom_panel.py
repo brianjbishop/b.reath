@@ -3,7 +3,10 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
-from breath_midi.types import Phase
+from breath_midi.ui.widgets.phase_rhombus import (
+    build_phase_rhombus,
+    refresh_phase_rhombus,
+)
 
 _GRAY_INACTIVE = (80, 80, 80, 255)
 _GATE_OPEN_COLOR = (0, 200, 100, 255)
@@ -106,8 +109,6 @@ class GroupBreathBottomPanel:
         """Build one 200px vertical strip for a device."""
         strip_tag = f"gb_strip_{snap.uuid}"
         r, g, b = snap.color
-        inh_color = (r, g, b, 255) if snap.phase == Phase.INHALE else _GRAY_INACTIVE
-        exh_color = (r, g, b, 255) if snap.phase == Phase.EXHALE else _GRAY_INACTIVE
 
         # Per-device color theme for M/S buttons when active
         with dpg.theme() as device_theme:
@@ -133,32 +134,14 @@ class GroupBreathBottomPanel:
 
             dpg.add_spacer(height=4)
 
-            # Row 2: In/Ex phase indicators + gate dot
+            # Row 2: four-phase rhombus + gate dot
             with dpg.group(horizontal=True):
-                dpg.add_text("In")
-                dpg.add_drawlist(
-                    width=14, height=14,
-                    tag=f"gb_strip_inh_{snap.uuid}",
-                )
-                dpg.draw_rectangle(
-                    (1, 1), (13, 13),
-                    fill=inh_color,
-                    color=inh_color,
-                    parent=f"gb_strip_inh_{snap.uuid}",
-                    tag=f"gb_strip_inh_rect_{snap.uuid}",
-                )
-                dpg.add_spacer(width=6)
-                dpg.add_text("Ex")
-                dpg.add_drawlist(
-                    width=14, height=14,
-                    tag=f"gb_strip_exh_{snap.uuid}",
-                )
-                dpg.draw_rectangle(
-                    (1, 1), (13, 13),
-                    fill=exh_color,
-                    color=exh_color,
-                    parent=f"gb_strip_exh_{snap.uuid}",
-                    tag=f"gb_strip_exh_rect_{snap.uuid}",
+                build_phase_rhombus(
+                    prefix=f"gb_strip_rh_{snap.uuid}",
+                    phase=snap.phase,
+                    color=snap.color,
+                    active=True,
+                    size=44,
                 )
                 dpg.add_spacer(width=6)
                 dpg.add_text("Gate")
@@ -283,6 +266,48 @@ class GroupBreathBottomPanel:
                     user_data=snap.uuid,
                 )
 
+            # Rows 7a/7b: the two hold numbers.  Checkbox gates each one — holds
+            # stay silent until deliberately switched on.
+            with dpg.group(horizontal=True):
+                dpg.add_checkbox(
+                    tag=f"gb_strip_hf_en_{snap.uuid}",
+                    default_value=snap.hold_full_enabled,
+                    callback=lambda s, a, u: self._on_hold_full_enabled(u, a),
+                    user_data=snap.uuid,
+                )
+                dpg.add_text("Hf#:")
+                dpg.add_input_int(
+                    tag=f"gb_strip_hf_num_{snap.uuid}",
+                    default_value=snap.hold_full_note,
+                    width=60,
+                    min_value=0,
+                    max_value=127,
+                    step=0,
+                    on_enter=True,
+                    callback=lambda s, a, u: self._on_hold_full_num_change(u, a),
+                    user_data=snap.uuid,
+                )
+
+            with dpg.group(horizontal=True):
+                dpg.add_checkbox(
+                    tag=f"gb_strip_he_en_{snap.uuid}",
+                    default_value=snap.hold_empty_enabled,
+                    callback=lambda s, a, u: self._on_hold_empty_enabled(u, a),
+                    user_data=snap.uuid,
+                )
+                dpg.add_text("He#:")
+                dpg.add_input_int(
+                    tag=f"gb_strip_he_num_{snap.uuid}",
+                    default_value=snap.hold_empty_note,
+                    width=60,
+                    min_value=0,
+                    max_value=127,
+                    step=0,
+                    on_enter=True,
+                    callback=lambda s, a, u: self._on_hold_empty_num_change(u, a),
+                    user_data=snap.uuid,
+                )
+
             dpg.add_spacer(height=4)
 
             # Row 8: CC value — only visible when CC mode on
@@ -309,8 +334,6 @@ class GroupBreathBottomPanel:
         for snap in snapshots:
             uuid = snap.uuid
             r, g, b = snap.color
-            inh_color = (r, g, b, 255) if snap.phase == Phase.INHALE else _GRAY_INACTIVE
-            exh_color = (r, g, b, 255) if snap.phase == Phase.EXHALE else _GRAY_INACTIVE
             gate_color = _GATE_OPEN_COLOR if snap.consistent_gate_open else _GRAY_INACTIVE
 
             name_tag = f"gb_strip_name_{uuid}"
@@ -318,13 +341,12 @@ class GroupBreathBottomPanel:
                 if dpg.get_value(name_tag) != snap.name[:15]:
                     dpg.set_value(name_tag, snap.name[:15])
 
-            inh_rect = f"gb_strip_inh_rect_{uuid}"
-            if dpg.does_item_exist(inh_rect):
-                dpg.configure_item(inh_rect, fill=inh_color, color=inh_color)
-
-            exh_rect = f"gb_strip_exh_rect_{uuid}"
-            if dpg.does_item_exist(exh_rect):
-                dpg.configure_item(exh_rect, fill=exh_color, color=exh_color)
+            refresh_phase_rhombus(
+                prefix=f"gb_strip_rh_{uuid}",
+                phase=snap.phase,
+                color=snap.color,
+                active=True,
+            )
 
             gate_rect = f"gb_strip_gate_rect_{uuid}"
             if dpg.does_item_exist(gate_rect):
@@ -377,6 +399,26 @@ class GroupBreathBottomPanel:
                 if int(dpg.get_value(exh_num)) != snap.exhale_note:
                     dpg.set_value(exh_num, snap.exhale_note)
 
+            hf_num = f"gb_strip_hf_num_{uuid}"
+            if dpg.does_item_exist(hf_num):
+                if int(dpg.get_value(hf_num)) != snap.hold_full_note:
+                    dpg.set_value(hf_num, snap.hold_full_note)
+
+            he_num = f"gb_strip_he_num_{uuid}"
+            if dpg.does_item_exist(he_num):
+                if int(dpg.get_value(he_num)) != snap.hold_empty_note:
+                    dpg.set_value(he_num, snap.hold_empty_note)
+
+            hf_en = f"gb_strip_hf_en_{uuid}"
+            if dpg.does_item_exist(hf_en):
+                if bool(dpg.get_value(hf_en)) != snap.hold_full_enabled:
+                    dpg.set_value(hf_en, snap.hold_full_enabled)
+
+            he_en = f"gb_strip_he_en_{uuid}"
+            if dpg.does_item_exist(he_en):
+                if bool(dpg.get_value(he_en)) != snap.hold_empty_enabled:
+                    dpg.set_value(he_en, snap.hold_empty_enabled)
+
     # ── interaction callbacks ─────────────────────────────────────────────────
 
     def _on_mute(self, uuid: str) -> None:
@@ -411,6 +453,18 @@ class GroupBreathBottomPanel:
 
     def _on_exhale_num_change(self, uuid: str, value: int) -> None:
         self._hub.set_exhale_number(uuid, int(value))
+
+    def _on_hold_full_num_change(self, uuid: str, value: int) -> None:
+        self._hub.set_hold_full_number(uuid, int(value))
+
+    def _on_hold_empty_num_change(self, uuid: str, value: int) -> None:
+        self._hub.set_hold_empty_number(uuid, int(value))
+
+    def _on_hold_full_enabled(self, uuid: str, value: bool) -> None:
+        self._hub.set_hold_full_enabled(uuid, bool(value))
+
+    def _on_hold_empty_enabled(self, uuid: str, value: bool) -> None:
+        self._hub.set_hold_empty_enabled(uuid, bool(value))
 
     def _on_cc_value_change(self, uuid: str, value: int) -> None:
         self._hub.set_cc_value(uuid, int(value))

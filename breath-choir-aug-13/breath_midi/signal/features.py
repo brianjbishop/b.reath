@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 
 from breath_midi.config.model import DetectionConfig
@@ -36,7 +37,13 @@ class FeatureExtractor:
         self._phase: Phase = Phase.REST
         self._phase_enter_t: float | None = None
 
+        # Rolling (t, amp) window used for hold detection, cleared on every
+        # phase change so a hold must be established within the current phase.
+        # See _held_flat() for why this measures amplitude, not slope.
+        self._amp_window: deque[tuple[float, float]] = deque()
+
         # cycle tracking
+        self._cycle_anchored: bool = False
         self._cycle_start_t: float | None = None
         self._cycle_peak: float = 0.0
         self._last_cycle: CycleMetrics | None = None
@@ -65,6 +72,13 @@ class FeatureExtractor:
         self._last_t = t
         self._last_amp = amp
 
+        # Hold-detection window.  Keep one sample at or before the boundary so
+        # the span can be measured exactly, and drop anything older.
+        self._amp_window.append((t, amp))
+        window_s = self._hold_window_s()
+        while len(self._amp_window) >= 2 and self._amp_window[1][0] <= (t - window_s):
+            self._amp_window.popleft()
+
         # Update peak within current cycle
         if self._cycle_start_t is None:
             self._cycle_start_t = t
@@ -80,21 +94,36 @@ class FeatureExtractor:
         cycle_completed = False
         cycle: CycleMetrics | None = None
 
-        # Detect cycle completion on inhale onset (REST/EXHALE -> INHALE)
+        # A cycle runs from one inhale onset to the next, so it can only be
+        # measured once an inhale has actually been seen.  The cycle clock is
+        # started at the first sample (see above), which is not an inhale — the
+        # first onset therefore only anchors the cycle rather than completing
+        # one.  Without this the first "cycle" reports a period of a single
+        # sample and that value pollutes the rolling average the
+        # consistent-breaths gate reads.
         if phase_changed and phase_next == Phase.INHALE and self._cycle_start_t is not None:
-            period = max(1e-6, t - self._cycle_start_t)
-            cycle = CycleMetrics(period_s=period, peak_amp=float(self._cycle_peak))
-            self._last_cycle = cycle
-            cycle_completed = True
+            if self._cycle_anchored:
+                period = max(1e-6, t - self._cycle_start_t)
+                cycle = CycleMetrics(period_s=period, peak_amp=float(self._cycle_peak))
+                self._last_cycle = cycle
+                cycle_completed = True
+
+                self._avg_period.update(period)
+                self._avg_peak.update(cycle.peak_amp)
+
+            self._cycle_anchored = True
             self._cycle_start_t = t
             self._cycle_peak = amp
-
-            self._avg_period.update(period)
-            self._avg_peak.update(cycle.peak_amp)
 
         if phase_changed:
             self._phase = phase_next
             self._phase_enter_t = t
+            # Reset the hold window on every phase change.  Without this, the
+            # flat samples from a hold would still be in the window when the
+            # next phase begins and could immediately re-trip a hold — most
+            # visibly a slow exhale leaving HOLD_FULL straight into HOLD_EMPTY.
+            self._amp_window.clear()
+            self._amp_window.append((t, amp))
 
         rolling = RollingStats(
             avg_period_s=self._avg_period.y,
@@ -114,35 +143,70 @@ class FeatureExtractor:
             source_id=s.source_id,
         )
 
+    def _hold_window_s(self) -> float:
+        return max(0.0, float(self.cfg.min_hold_ms) / 1000.0)
+
+    def _held_flat(self) -> bool:
+        """
+        True when the breath has barely moved for a full min_hold_ms window.
+
+        Flatness is measured as *amplitude excursion* over the window rather
+        than as a small derivative, for two reasons found while testing:
+
+        1. The derivative is EMA-smoothed, so it lags.  After a two-second
+           inhale the smoothed slope needs roughly 300ms to decay below any
+           flat threshold, which would silently shorten every detected hold
+           and make short holds undetectable.
+        2. Excursion is what "holding your breath" actually means, and it is
+           unaffected by how fast the performer was moving beforehand.
+
+        The tolerance is derived from slope_rest_abs — the amount the signal
+        would drift over the window if it were moving at exactly that slope —
+        so the existing Detection knob keeps its meaning and its UI control.
+        """
+        cfg = self.cfg
+        if not cfg.hold_enabled:
+            return False
+        window_s = self._hold_window_s()
+        if window_s <= 0.0 or len(self._amp_window) < 2:
+            return False
+
+        t_now = self._amp_window[-1][0]
+        # The window must actually span min_hold_ms — otherwise we would call a
+        # hold the moment a phase begins, before there is evidence either way.
+        if (t_now - self._amp_window[0][0]) < window_s:
+            return False
+
+        amps = [a for _, a in self._amp_window]
+        tol = max(0.0, float(cfg.slope_rest_abs)) * window_s
+        return (max(amps) - min(amps)) <= tol
+
     def _next_phase(self, amp: float, d_amp: float, current: Phase) -> Phase:
         cfg = self.cfg
 
         h = float(cfg.hysteresis)
-        rest_enter = float(cfg.rest_enter_amp)
         slope_enter_abs = max(0.0, float(cfg.slope_enter_abs))
-        slope_rest_abs = max(0.0, float(cfg.slope_rest_abs))
 
-        min_phase_s = max(0.0, float(cfg.min_phase_ms) / 1000.0)
-        if self._phase_enter_t is not None and self._last_t is not None:
-            if (self._last_t - self._phase_enter_t) < min_phase_s:
-                return current
-
-        low_enter = max(0.0, rest_enter - h)
-        low_stay = rest_enter + h
-        flat_enter = max(0.0, slope_rest_abs - h)
-        flat_stay = slope_rest_abs + h
         slope_enter = slope_enter_abs + h
         slope_stay = max(0.0, slope_enter_abs - h)
 
-        is_low_enter = amp <= low_enter
-        is_low_stay = amp <= low_stay
-        is_flat_enter = abs(d_amp) <= flat_enter
-        is_flat_stay = abs(d_amp) <= flat_stay
         is_rising_enter = d_amp >= slope_enter
         is_falling_enter = d_amp <= -slope_enter
         is_rising_stay = d_amp >= slope_stay
         is_falling_stay = d_amp <= -slope_stay
 
+        t_now = self._last_t
+        held_flat = self._held_flat()
+
+        min_phase_s = max(0.0, float(cfg.min_phase_ms) / 1000.0)
+        if self._phase_enter_t is not None and t_now is not None:
+            if (t_now - self._phase_enter_t) < min_phase_s:
+                return current
+
+        # Which hold a sustained flat resolves to is decided by the phase it
+        # arrives from, not by amplitude.  Amplitude is unreliable here — a
+        # shallow breather's "full" is a deep breather's "empty" — whereas the
+        # cycle order (inhale → hold → exhale → hold) always holds.
         if current == Phase.REST:
             if is_rising_enter:
                 return Phase.INHALE
@@ -151,26 +215,36 @@ class FeatureExtractor:
             return Phase.REST
 
         if current == Phase.INHALE:
-            if is_low_enter and is_flat_enter:
-                return Phase.REST
             if is_falling_enter:
                 return Phase.EXHALE
+            if held_flat:
+                return Phase.HOLD_FULL
             if is_rising_stay:
                 return Phase.INHALE
-            if is_low_stay and is_flat_stay:
-                return Phase.REST
             return Phase.INHALE
 
-        if current == Phase.EXHALE:
-            if is_low_enter and is_flat_enter:
-                return Phase.REST
+        if current == Phase.HOLD_FULL:
+            if is_falling_enter:
+                return Phase.EXHALE
             if is_rising_enter:
                 return Phase.INHALE
+            return Phase.HOLD_FULL
+
+        if current == Phase.EXHALE:
+            if is_rising_enter:
+                return Phase.INHALE
+            if held_flat:
+                return Phase.HOLD_EMPTY
             if is_falling_stay:
                 return Phase.EXHALE
-            if is_low_stay and is_flat_stay:
-                return Phase.REST
             return Phase.EXHALE
+
+        if current == Phase.HOLD_EMPTY:
+            if is_rising_enter:
+                return Phase.INHALE
+            if is_falling_enter:
+                return Phase.EXHALE
+            return Phase.HOLD_EMPTY
 
         return Phase.REST
 

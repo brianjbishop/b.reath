@@ -146,50 +146,79 @@ A rhythm-focused piece on top of breath-choir-apr-25.
 ## breath-choir-aug-13 — August 2026
 
 Forked from breath-choir-apr-25 (not breath-beat-may-1) to refine **performance mechanics**
-rather than add another tab. Fork is a verbatim copy; the work below is planned, not built.
+rather than add another tab.
 
 **Four-phase breath cycle — inhale → hold → exhale → hold**
 
-The current detector cannot see a breath hold. `FeatureExtractor` already computes a
-smoothed derivative and already tests for flatness (`is_flat_enter` / `is_flat_stay`,
-driven by `slope_rest_abs`), but the only flat state, `Phase.REST`, *also* requires
-low amplitude:
+The old detector could not see a breath hold. The only flat state, `Phase.REST`, also
+required *low* amplitude, so a hold at the top of an inhale — flat but high — fell
+through and stayed `INHALE`. There was no state to assign an action to.
 
-```python
-if is_low_enter and is_flat_enter:
-    return Phase.REST
-```
+`Phase` now has `HOLD_FULL` and `HOLD_EMPTY`. `REST` is demoted to the cold-start state:
+once breathing begins the FSM never returns to it, and a device going quiet is handled
+by the hub's existing device timeout.
 
-A hold at the top of an inhale is flat but **high** amplitude, so it falls through and
-stays `INHALE` — there is no state to assign an action to.
+Two things about the first design turned out to be wrong, both found by the tests:
 
-- Split the flat state by amplitude: `HOLD_FULL` (flat + high, after inhale) and
-  `HOLD_EMPTY` (flat + low, after exhale). Keep `REST` distinct from `HOLD_EMPTY` so
-  an idle device doesn't fire a hold action.
-- Add a minimum hold duration separate from `min_phase_ms` (120 ms is far too short —
-  the natural flat moment at a breath's turnaround would read as a deliberate hold).
-- Cycle completion currently keys off `REST/EXHALE -> INHALE`; the period math needs
-  revisiting once the states change.
-- Four assignable states, not two: this reaches `DeviceEntry`, the router, and the
-  device cards, not just the FSM.
+- *Deciding the hold by amplitude doesn't work.* A shallow breather's "full" is a deep
+  breather's "empty". Which hold a sustained flat resolves to is decided by the phase it
+  arrives **from** — `INHALE → HOLD_FULL`, `EXHALE → HOLD_EMPTY`. The cycle order always
+  holds where amplitude doesn't.
+- *Slope is the wrong measure of flatness.* The derivative is EMA-smoothed, so after a
+  two-second inhale it needs ~300ms to decay below any flat threshold — silently
+  shortening every hold and making short holds undetectable. `_held_flat()` measures
+  **amplitude excursion** over the `min_hold_ms` window instead, which has no lag. The
+  tolerance is derived as `slope_rest_abs * min_hold_ms`, so the existing Detection knob
+  keeps its meaning and its UI control.
 
-**Rhombus phase UI** — replace the two-state inhale/exhale indicator with a four-point
-figure, one vertex per phase, lit as the FSM enters it. Makes box breathing legible at
-a glance.
+The unavoidable trade-off: a deliberate hold and the turnaround of a very slow deep
+breath are near-identical over a short window. `min_hold_ms` defaults to **1000ms** for
+that reason, not out of caution — at 400ms a 10s-period breath reads as a hold. The
+`slope_rest_abs` default dropped 0.03 → 0.015 since it now scales the hold tolerance
+rather than the old low-amplitude rest test.
 
-**Dummy-data mode** — port the pattern from
-`stop-and-let-the-rose-smell-v2/rose_breath/dummy_data.js`, which already defines six
-synthetic performers including a `'box'` shape (inhale/hold/exhale/hold). That is
-exactly the signal the four-phase FSM needs, so this lands *before* the FSM work.
-Injection point is the `BreathInputSource` ABC in `input/base.py`: a `DummyBreathSource`
-emitting synthetic `BreathSample`s exercises device registration, colors, timeout
-fade-out, and MIDI through the unchanged path — including one performer that drops out.
+Also fixed in passing: the cycle clock was anchored at the first *sample* rather than the
+first inhale, so the first "cycle" reported a period of one sample (~0.04s) straight into
+the rolling-average EMA that the consistent-breaths gate reads. The first onset now only
+anchors the cycle.
 
-**Port map** — the rose visualization and the MIDI app currently collide.
-`osc_ws_bridge.py` binds 8001 (phones), 8765 (browser WS), and forwards to 8002, but
-Every Breath / Group Breath / Breath Beat also listen on 8001, and `config.toml` is set
-to 8000 — a third value matching neither. Settle one map across the bridge,
-`config.toml`, and the wifi-qr generator, and document it.
+**Per-phase MIDI** — `HoldFullOnsetTrigger` / `HoldEmptyOnsetTrigger` and CC variants,
+sharing a base rather than the four-way copy-paste the inhale/exhale pair uses.
+`DeviceEntry` gains hold notes plus explicit enabled flags, both **off by default** —
+holds are additive, so an existing Ableton set keeps its exact inhale/exhale output until
+a hold is switched on. Hold notes seed from the device's own inhale/exhale numbers so
+enabling one can never collide with another device's assignment.
+
+**Rhombus phase UI** — `ui/widgets/phase_rhombus.py` replaces the two In/Ex squares with a
+diamond, one vertex per phase, clockwise: inhale (left) → hold full (top) → exhale
+(right) → hold empty (bottom). Used by both the Every Breath cards and the Group Breath
+strips. Vertices are recoloured in place via `configure_item`, never rebuilt — the same
+constraint that caused the waveform flicker bug in breath-choir-apr-25.
+
+**Tests** — first test suite in the repo (`tests/`, pytest in `requirements-dev.txt`).
+Synthetic breath signals cover the FSM, the full signal → trigger → MIDI chain against a
+fake sink, and headless DPG builds of both device views. The device cards and strips are
+built lazily when a phone connects, so launching the app never touches them; without
+these, a bad tag would only surface mid-performance.
+
+**Still open** — dummy-data mode and the port map.
+
+*Dummy-data mode*: port the pattern from
+`stop-and-let-the-rose-smell-v2/rose_breath/dummy_data.js`, which defines six synthetic
+performers including a `'box'` shape (inhale/hold/exhale/hold). Injection point is the
+`BreathInputSource` ABC in `input/base.py`: a `DummyBreathSource` emitting synthetic
+`BreathSample`s exercises device registration, colors, timeout fade-out, and MIDI through
+the unchanged path — including one performer that drops out. The FSM tests already use
+these waveforms, so the app-level mode covers the same cases interactively.
+
+*Port map*: the rose visualization and the MIDI app collide. `osc_ws_bridge.py` binds
+8001 (phones), 8765 (browser WS), and forwards to 8002 — but `hub.py` hardcodes the
+multi-device listener to 8001 too, and `multi_osc.py` sets `SO_REUSEADDR`, so on macOS the
+second bind *succeeds* and the kernel splits datagrams between the two processes instead
+of erroring. That is why it presented as flaky phones rather than a crash. Fix: make the
+hub's port a config value and set it to 8002, keep the QR at 8001 (it tells phones where
+to send, and phones talk to the bridge), and drop `SO_REUSEADDR` so a real conflict fails
+loudly.
 
 ---
 
@@ -205,6 +234,9 @@ to 8000 — a third value matching neither. Settle one map across the bridge,
 | `midi_channel - 1` in router only | UI and registry stay human-readable (1–16); only the send path converts |
 | DeviceRegistry not cleared on stop | Device names, colors, note assignments persist across hub stop/start in a session |
 | WebSocket bridge as middleware | Decouples MIDI and visualization — neither needs to know the other exists |
+| Hold resolved by prior phase, not amplitude | A shallow breather's "full" is a deep breather's "empty"; cycle order is universal |
+| Hold flatness measured as amplitude excursion | The smoothed derivative lags ~300ms after a ramp, which would truncate every hold |
+| Hold notes off by default | Holds are additive — an existing Ableton set keeps its exact output until opted in |
 
 ---
 

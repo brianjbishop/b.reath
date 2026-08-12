@@ -46,6 +46,13 @@ class DeviceEntry:
     cc_value: int = 127
     cons_n: int = 3
     cons_tolerance: float = 0.30
+    # Hold notes seed from this device's own inhale/exhale numbers so enabling a
+    # hold can never collide with another device's assignment.  Both start
+    # disabled: inhale/exhale output is unchanged until a hold is switched on.
+    hold_full_note: int = 0
+    hold_empty_note: int = 0
+    hold_full_enabled: bool = False
+    hold_empty_enabled: bool = False
 
 
 class DeviceRegistry:
@@ -81,6 +88,8 @@ class DeviceRegistry:
                 display_order=idx,
                 color=generate_device_color(idx),
                 name=uuid[:15],
+                hold_full_note=inhale_note,
+                hold_empty_note=exhale_note,
             )
             self._entries[uuid] = entry
             return entry, True
@@ -124,6 +133,26 @@ class DeviceRegistry:
         with self._lock:
             if uuid in self._entries:
                 self._entries[uuid] = replace(self._entries[uuid], exhale_note=note)
+
+    def set_hold_full_note(self, uuid: str, note: int) -> None:
+        with self._lock:
+            if uuid in self._entries:
+                self._entries[uuid] = replace(self._entries[uuid], hold_full_note=note)
+
+    def set_hold_empty_note(self, uuid: str, note: int) -> None:
+        with self._lock:
+            if uuid in self._entries:
+                self._entries[uuid] = replace(self._entries[uuid], hold_empty_note=note)
+
+    def set_hold_full_enabled(self, uuid: str, enabled: bool) -> None:
+        with self._lock:
+            if uuid in self._entries:
+                self._entries[uuid] = replace(self._entries[uuid], hold_full_enabled=enabled)
+
+    def set_hold_empty_enabled(self, uuid: str, enabled: bool) -> None:
+        with self._lock:
+            if uuid in self._entries:
+                self._entries[uuid] = replace(self._entries[uuid], hold_empty_enabled=enabled)
 
     def set_color(self, uuid: str, color: tuple[int, int, int]) -> None:
         with self._lock:

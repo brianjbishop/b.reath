@@ -9,6 +9,7 @@ from breath_midi.config.model import (
     ConsistentBreathsTriggerConfig,
     DetectionConfig,
     ExhaleOnsetTriggerConfig,
+    HoldOnsetTriggerConfig,
     InhaleOnsetTriggerConfig,
     InputConfig,
     MidiActivityUiConfig,
@@ -104,6 +105,8 @@ class ConfigStore:
             slope_rest_abs=float(detection_raw.get("slope_rest_abs", 0.03)),
             hysteresis=_req_float(detection_raw, "hysteresis"),
             min_phase_ms=_req_int(detection_raw, "min_phase_ms"),
+            hold_enabled=bool(detection_raw.get("hold_enabled", True)),
+            min_hold_ms=int(detection_raw.get("min_hold_ms", 1000)),
         )
         midi_cfg = MidiConfig(
             out_port=str(midi_raw.get("out_port", "")),
@@ -117,6 +120,8 @@ class ConfigStore:
         inhale_sustain_raw = triggers_raw.get("inhale_sustain", {})
         exhale_sustain_raw = triggers_raw.get("exhale_sustain", {})
         consistent_raw = triggers_raw.get("consistent_breaths", {})
+        hold_full_raw = triggers_raw.get("hold_full_onset", {})
+        hold_empty_raw = triggers_raw.get("hold_empty_onset", {})
 
         triggers_cfg = TriggersConfig(
             inhale_onset=InhaleOnsetTriggerConfig(
@@ -157,6 +162,19 @@ class ConfigStore:
                 peak_tol_value=float(consistent_raw.get("peak_tol_value", 0.1)),
                 note=int(consistent_raw.get("note", 64)),
                 velocity=int(consistent_raw.get("velocity", midi_cfg.default_velocity)),
+            ),
+            # Holds default to disabled — see HoldOnsetTriggerConfig.
+            hold_full_onset=HoldOnsetTriggerConfig(
+                enabled=bool(hold_full_raw.get("enabled", False)),
+                note=int(hold_full_raw.get("note", 67)),
+                velocity=int(hold_full_raw.get("velocity", midi_cfg.default_velocity)),
+                debounce_ms=int(hold_full_raw.get("debounce_ms", 200)),
+            ),
+            hold_empty_onset=HoldOnsetTriggerConfig(
+                enabled=bool(hold_empty_raw.get("enabled", False)),
+                note=int(hold_empty_raw.get("note", 60)),
+                velocity=int(hold_empty_raw.get("velocity", midi_cfg.default_velocity)),
+                debounce_ms=int(hold_empty_raw.get("debounce_ms", 200)),
             ),
         )
 

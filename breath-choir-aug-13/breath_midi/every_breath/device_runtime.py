@@ -12,6 +12,14 @@ from breath_midi.triggers.engine import TriggerEngine
 from breath_midi.triggers.v1.consistent_breaths import ConsistentBreathsTrigger
 from breath_midi.triggers.v1.exhale_cc_onset import ExhaleCcOnsetTrigger
 from breath_midi.triggers.v1.exhale_onset import ExhaleOnsetTrigger
+from breath_midi.triggers.v1.hold_cc_onset import (
+    HoldEmptyCcOnsetTrigger,
+    HoldFullCcOnsetTrigger,
+)
+from breath_midi.triggers.v1.hold_onset import (
+    HoldEmptyOnsetTrigger,
+    HoldFullOnsetTrigger,
+)
 from breath_midi.triggers.v1.inhale_cc_onset import InhaleCcOnsetTrigger
 from breath_midi.triggers.v1.inhale_onset import InhaleOnsetTrigger
 from breath_midi.types import BreathSample, Phase, TriggerKind
@@ -37,6 +45,8 @@ class DeviceRuntime:
         self._features = FeatureExtractor(config.detection)
         self._inh_cc = InhaleCcOnsetTrigger()
         self._exh_cc = ExhaleCcOnsetTrigger()
+        self._hold_full_cc = HoldFullCcOnsetTrigger()
+        self._hold_empty_cc = HoldEmptyCcOnsetTrigger()
         self._cons = ConsistentBreathsTrigger()
         self._cc_mode: bool = False
         self._gate_open: bool = True   # starts open; closes only after streak is lost
@@ -95,7 +105,15 @@ class DeviceRuntime:
     # ── private helpers ───────────────────────────────────────────────────────
 
     def _current_strategies(self) -> list:
-        onset = [self._inh_cc, self._exh_cc] if self._cc_mode else [InhaleOnsetTrigger(), ExhaleOnsetTrigger()]
+        if self._cc_mode:
+            onset = [self._inh_cc, self._exh_cc, self._hold_full_cc, self._hold_empty_cc]
+        else:
+            onset = [
+                InhaleOnsetTrigger(),
+                ExhaleOnsetTrigger(),
+                HoldFullOnsetTrigger(),
+                HoldEmptyOnsetTrigger(),
+            ]
         return onset + [self._cons]
 
     # ── public controls ───────────────────────────────────────────────────────
@@ -108,6 +126,37 @@ class DeviceRuntime:
                 t,
                 inhale_onset=replace(t.inhale_onset, note=inhale_note),
                 exhale_onset=replace(t.exhale_onset, note=exhale_note),
+            ),
+        )
+        with self._lock:
+            self._config = new_cfg
+            self._triggers = TriggerEngine(new_cfg, strategies=self._current_strategies())
+            self._router = MidiRouter(new_cfg, midi=self._shared_sink)
+
+    def set_hold_notes(self, hold_full_note: int, hold_empty_note: int) -> None:
+        t = self._config.triggers
+        new_cfg = replace(
+            self._config,
+            triggers=replace(
+                t,
+                hold_full_onset=replace(t.hold_full_onset, note=hold_full_note),
+                hold_empty_onset=replace(t.hold_empty_onset, note=hold_empty_note),
+            ),
+        )
+        with self._lock:
+            self._config = new_cfg
+            self._triggers = TriggerEngine(new_cfg, strategies=self._current_strategies())
+            self._router = MidiRouter(new_cfg, midi=self._shared_sink)
+
+    def set_hold_enabled(self, hold_full: bool, hold_empty: bool) -> None:
+        """Enable or disable each hold's MIDI output for this device."""
+        t = self._config.triggers
+        new_cfg = replace(
+            self._config,
+            triggers=replace(
+                t,
+                hold_full_onset=replace(t.hold_full_onset, enabled=hold_full),
+                hold_empty_onset=replace(t.hold_empty_onset, enabled=hold_empty),
             ),
         )
         with self._lock:
@@ -132,10 +181,22 @@ class DeviceRuntime:
             self._exh_cc.set_cc(cc_number, self._exh_cc._cc_value)
 
     def set_cc_value(self, cc_value: int) -> None:
-        """Update the CC value fired by both CC onset triggers."""
+        """Update the CC value fired by every CC onset trigger."""
         with self._lock:
             self._inh_cc.set_cc(self._inh_cc._cc_number, cc_value)
             self._exh_cc.set_cc(self._exh_cc._cc_number, cc_value)
+            self._hold_full_cc.set_cc(self._hold_full_cc._cc_number, cc_value)
+            self._hold_empty_cc.set_cc(self._hold_empty_cc._cc_number, cc_value)
+
+    def set_hold_full_cc(self, cc_number: int) -> None:
+        """Update the hold-full CC trigger's CC number (used in CC mode)."""
+        with self._lock:
+            self._hold_full_cc.set_cc(cc_number, self._hold_full_cc._cc_value)
+
+    def set_hold_empty_cc(self, cc_number: int) -> None:
+        """Update the hold-empty CC trigger's CC number (used in CC mode)."""
+        with self._lock:
+            self._hold_empty_cc.set_cc(cc_number, self._hold_empty_cc._cc_value)
 
     def set_cons_n(self, n: int) -> None:
         """Set consistent breaths streak target.  n=0 disables gating."""
@@ -167,10 +228,19 @@ class DeviceRuntime:
             self._triggers = TriggerEngine(self._config, strategies=self._current_strategies())
 
 
-def make_device_config(base: ConfigModel, inhale_note: int, exhale_note: int) -> ConfigModel:
+def make_device_config(
+    base: ConfigModel,
+    inhale_note: int,
+    exhale_note: int,
+    hold_full_note: int = 0,
+    hold_empty_note: int = 0,
+    hold_full_enabled: bool = False,
+    hold_empty_enabled: bool = False,
+) -> ConfigModel:
     """
     Build a per-device ConfigModel from base config with device-specific notes.
     Sustain CC and ConsistentBreaths triggers are disabled — see DeviceRuntime docstring.
+    Holds are per-device and off unless explicitly enabled.
     """
     t = base.triggers
     return replace(
@@ -179,6 +249,12 @@ def make_device_config(base: ConfigModel, inhale_note: int, exhale_note: int) ->
             t,
             inhale_onset=replace(t.inhale_onset, note=inhale_note, enabled=True),
             exhale_onset=replace(t.exhale_onset, note=exhale_note, enabled=True),
+            hold_full_onset=replace(
+                t.hold_full_onset, note=hold_full_note, enabled=hold_full_enabled
+            ),
+            hold_empty_onset=replace(
+                t.hold_empty_onset, note=hold_empty_note, enabled=hold_empty_enabled
+            ),
             inhale_sustain=replace(t.inhale_sustain, enabled=False),
             exhale_sustain=replace(t.exhale_sustain, enabled=False),
             consistent_breaths=replace(t.consistent_breaths, enabled=False),

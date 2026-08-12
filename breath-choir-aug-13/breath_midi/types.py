@@ -21,9 +21,25 @@ class ProcessedSample:
 
 
 class Phase(str, Enum):
+    """
+    Breath phases.
+
+    The performance cycle is four states — INHALE, HOLD_FULL, EXHALE,
+    HOLD_EMPTY — and the FSM walks them in that order.  Which hold you land
+    in is decided by the phase you arrived from, not by amplitude, so the
+    cycle stays predictable when a performer breathes shallowly.
+
+    REST is *not* part of the cycle.  It is the cold-start state before the
+    first breath is seen; once breathing begins the FSM never returns to it.
+    A device that goes quiet is handled at the hub level by the device
+    timeout, not here.
+    """
+
     REST = "rest"
     INHALE = "inhale"
+    HOLD_FULL = "hold_full"
     EXHALE = "exhale"
+    HOLD_EMPTY = "hold_empty"
 
 
 @dataclass(frozen=True)

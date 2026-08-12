@@ -33,6 +33,10 @@ class DeviceUISnapshot:
     cons_n: int
     cons_tolerance: float
     consistent_gate_open: bool
+    hold_full_note: int
+    hold_empty_note: int
+    hold_full_enabled: bool
+    hold_empty_enabled: bool
 
 
 class EveryBreathHub:
@@ -148,6 +152,10 @@ class EveryBreathHub:
                     cons_n=entry.cons_n,
                     cons_tolerance=entry.cons_tolerance,
                     consistent_gate_open=runtime.get_gate_open() if runtime is not None else True,
+                    hold_full_note=entry.hold_full_note,
+                    hold_empty_note=entry.hold_empty_note,
+                    hold_full_enabled=entry.hold_full_enabled,
+                    hold_empty_enabled=entry.hold_empty_enabled,
                 )
             )
         return result
@@ -186,6 +194,8 @@ class EveryBreathHub:
                 if entry is not None:
                     runtime.set_inhale_cc(entry.inhale_note)
                     runtime.set_exhale_cc(entry.exhale_note)
+                    runtime.set_hold_full_cc(entry.hold_full_note)
+                    runtime.set_hold_empty_cc(entry.hold_empty_note)
 
     def set_inhale_number(self, uuid: str, value: int) -> None:
         entry = self.registry.get(uuid)
@@ -213,6 +223,46 @@ class EveryBreathHub:
         else:
             runtime.set_notes(entry.inhale_note, value)
 
+    def set_hold_full_number(self, uuid: str, value: int) -> None:
+        entry = self.registry.get(uuid)
+        if entry is None:
+            return
+        self.registry.set_hold_full_note(uuid, value)
+        runtime = self._runtimes.get(uuid)
+        if runtime is None:
+            return
+        if entry.cc_mode:
+            runtime.set_hold_full_cc(value)
+        else:
+            runtime.set_hold_notes(value, entry.hold_empty_note)
+
+    def set_hold_empty_number(self, uuid: str, value: int) -> None:
+        entry = self.registry.get(uuid)
+        if entry is None:
+            return
+        self.registry.set_hold_empty_note(uuid, value)
+        runtime = self._runtimes.get(uuid)
+        if runtime is None:
+            return
+        if entry.cc_mode:
+            runtime.set_hold_empty_cc(value)
+        else:
+            runtime.set_hold_notes(entry.hold_full_note, value)
+
+    def set_hold_full_enabled(self, uuid: str, enabled: bool) -> None:
+        self.registry.set_hold_full_enabled(uuid, enabled)
+        entry = self.registry.get(uuid)
+        runtime = self._runtimes.get(uuid)
+        if entry is not None and runtime is not None:
+            runtime.set_hold_enabled(enabled, entry.hold_empty_enabled)
+
+    def set_hold_empty_enabled(self, uuid: str, enabled: bool) -> None:
+        self.registry.set_hold_empty_enabled(uuid, enabled)
+        entry = self.registry.get(uuid)
+        runtime = self._runtimes.get(uuid)
+        if entry is not None and runtime is not None:
+            runtime.set_hold_enabled(entry.hold_full_enabled, enabled)
+
     def set_cc_value(self, uuid: str, value: int) -> None:
         self.registry.set_cc_value(uuid, value)
         runtime = self._runtimes.get(uuid)
@@ -238,7 +288,15 @@ class EveryBreathHub:
         self.registry.mark_connected(uuid)
         if uuid not in self._runtimes:
             assert self._midi_sink is not None
-            device_cfg = make_device_config(self._config, entry.inhale_note, entry.exhale_note)
+            device_cfg = make_device_config(
+                self._config,
+                entry.inhale_note,
+                entry.exhale_note,
+                hold_full_note=entry.hold_full_note,
+                hold_empty_note=entry.hold_empty_note,
+                hold_full_enabled=entry.hold_full_enabled,
+                hold_empty_enabled=entry.hold_empty_enabled,
+            )
             self._runtimes[uuid] = DeviceRuntime(device_cfg, self._midi_sink)
             with self._lock:
                 self._waveform_bufs[uuid] = deque(maxlen=_WAVEFORM_MAXLEN)

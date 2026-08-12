@@ -542,6 +542,29 @@ class BreathMidiDpgUI:
             default_value=120,
             callback=self._cb,
         )
+        dpg.add_spacer(height=6)
+        dpg.add_checkbox(
+            label="Detect holds",
+            tag="ui_hold_enabled",
+            default_value=True,
+            callback=self._cb,
+        )
+        dpg.add_text("Min hold (ms)")
+        dpg.add_input_int(
+            tag="ui_min_hold_ms",
+            width=140,
+            min_value=0,
+            max_value=10000,
+            default_value=1000,
+            callback=self._cb,
+        )
+        # Lowering this below about 800ms starts catching the turnaround of a
+        # slow deep breath as a hold; "Slope rest" sets how still the breath
+        # must be over the window.
+        dpg.add_text(
+            "Lower = more sensitive; below ~800ms slow\nbreathing can register as a hold.",
+            color=(150, 150, 150),
+        )
 
     def _build_tab_midi(self) -> None:
         with dpg.group(horizontal=True):
@@ -1037,6 +1060,8 @@ class BreathMidiDpgUI:
                 slope_rest_abs=float(dpg.get_value("ui_slope_rest")),
                 hysteresis=float(dpg.get_value("ui_hysteresis")),
                 min_phase_ms=int(dpg.get_value("ui_min_phase_ms")),
+                hold_enabled=bool(dpg.get_value("ui_hold_enabled")),
+                min_hold_ms=int(dpg.get_value("ui_min_hold_ms")),
             )
             port_name = str(dpg.get_value("ui_midi_port") or "").strip()
             midi_cfg = replace(
@@ -1133,6 +1158,8 @@ class BreathMidiDpgUI:
             dpg.set_value("ui_slope_rest", float(cfg.detection.slope_rest_abs))
             dpg.set_value("ui_hysteresis", float(cfg.detection.hysteresis))
             dpg.set_value("ui_min_phase_ms", int(cfg.detection.min_phase_ms))
+            dpg.set_value("ui_hold_enabled", bool(cfg.detection.hold_enabled))
+            dpg.set_value("ui_min_hold_ms", int(cfg.detection.min_hold_ms))
 
             ports = MidoMidiSink.list_outputs()
             if not ports:
