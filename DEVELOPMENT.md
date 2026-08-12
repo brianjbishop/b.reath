@@ -71,7 +71,7 @@ data simultaneously from a single OSC stream, without either knowing about the o
 
 ---
 
-## breath-choir — April/May 2026
+## breath-choir-apr-25 — April/May 2026
 
 Multi-performer expansion, built for the Hive 10-Year Anniversary performance.
 
@@ -108,9 +108,9 @@ Multi-performer expansion, built for the Hive 10-Year Anniversary performance.
 
 ---
 
-## breath-beat — May 2026
+## breath-beat-may-1 — May 2026
 
-A rhythm-focused piece on top of breath-choir.
+A rhythm-focused piece on top of breath-choir-apr-25.
 
 **Breath Beat tab** — isolated copy of Group Breath
 - Full independent pipeline: `BreathBeatHub` with its own `DeviceRegistry` and
@@ -143,10 +143,10 @@ A rhythm-focused piece on top of breath-choir.
 
 ---
 
-## breath-choir-v2 — August 2026
+## breath-choir-aug-13 — August 2026
 
-Forked from breath-choir (not breath-beat) to refine **performance mechanics** rather
-than add another tab. Fork is a verbatim copy; the work below is planned, not built.
+Forked from breath-choir-apr-25 (not breath-beat-may-1) to refine **performance mechanics**
+rather than add another tab. Fork is a verbatim copy; the work below is planned, not built.
 
 **Four-phase breath cycle — inhale → hold → exhale → hold**
 

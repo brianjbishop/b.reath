@@ -30,9 +30,9 @@ across different breathing depths and styles.
 
 | Folder | What it is |
 |--------|-----------|
-| [breath-choir-v2/](breath-choir-v2/) | In progress — performance mechanics: breath-hold detection, four-phase cycle |
-| [breath-beat/](breath-beat/) | Rhythm piece — per-device MIDI channels, Breath Beat tab, gate disabled |
-| [breath-choir/](breath-choir/) | Multi-performer — Every Breath + Group Breath tabs, breath guide animation |
+| [breath-choir-aug-13/](breath-choir-aug-13/) | In progress — performance mechanics: breath-hold detection, four-phase cycle |
+| [breath-beat-may-1/](breath-beat-may-1/) | Rhythm piece — per-device MIDI channels, Breath Beat tab, gate disabled |
+| [breath-choir-apr-25/](breath-choir-apr-25/) | Multi-performer — Every Breath + Group Breath tabs, breath guide animation |
 | [stop-and-let-the-rose-smell-v2/](stop-and-let-the-rose-smell-v2/) | Adds p5.js browser visualization via OSC→WebSocket bridge |
 | [stop-and-let-the-rose-smell-v1/](stop-and-let-the-rose-smell-v1/) | First named piece — consistent breath gate, QR code Wi-Fi setup |
 
@@ -48,7 +48,7 @@ Dependencies per iteration are in each folder's `requirements.txt`.
 ## Running
 
 ```bash
-cd breath-beat
+cd breath-choir-aug-13
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

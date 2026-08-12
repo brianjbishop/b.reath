@@ -1,4 +1,4 @@
-# breath-choir
+# breath-choir-aug-13
 
 Breath-driven MIDI tooling for the **TOTEM** iOS app: a **Breath → MIDI** controller and an optional **standalone breath viewer**. Both use **Dear PyGui** for the UI (no Qt), which keeps the stack consistent and avoids common macOS Qt platform plugin issues.
 
