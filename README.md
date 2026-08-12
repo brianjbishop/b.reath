@@ -30,7 +30,8 @@ across different breathing depths and styles.
 
 | Folder | What it is |
 |--------|-----------|
-| [breath-beat/](breath-beat/) | Current — per-device MIDI channels, Breath Beat tab, gate disabled |
+| [breath-choir-v2/](breath-choir-v2/) | In progress — performance mechanics: breath-hold detection, four-phase cycle |
+| [breath-beat/](breath-beat/) | Rhythm piece — per-device MIDI channels, Breath Beat tab, gate disabled |
 | [breath-choir/](breath-choir/) | Multi-performer — Every Breath + Group Breath tabs, breath guide animation |
 | [stop-and-let-the-rose-smell-v2/](stop-and-let-the-rose-smell-v2/) | Adds p5.js browser visualization via OSC→WebSocket bridge |
 | [stop-and-let-the-rose-smell-v1/](stop-and-let-the-rose-smell-v1/) | First named piece — consistent breath gate, QR code Wi-Fi setup |
