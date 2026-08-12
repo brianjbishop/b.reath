@@ -90,7 +90,11 @@ class MultiDeviceOscSource:
         if self._running:
             return
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Deliberately NOT setting SO_REUSEADDR.  On macOS it lets a second
+        # process bind the same UDP port successfully, after which the kernel
+        # hands each datagram to only one of the two sockets — so a port clash
+        # showed up as phones randomly failing to appear rather than as an
+        # error.  Without it, bind() raises and the caller reports it.
         self._sock.bind(("0.0.0.0", self._port))
         self._sock.settimeout(0.5)
         self._running = True

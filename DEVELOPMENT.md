@@ -201,7 +201,43 @@ fake sink, and headless DPG builds of both device views. The device cards and st
 built lazily when a phone connects, so launching the app never touches them; without
 these, a bad tag would only surface mid-performance.
 
-**Still open** — dummy-data mode and the port map.
+**Bridge absorbed into the app** — the rose visualization no longer needs a second
+process. `osc_ws_bridge.py` used to sit in front as a man-in-the-middle: phones to 8001,
+forward to 8002, browser on 8765. But `hub.py` also listened on 8001, and `multi_osc.py`
+set `SO_REUSEADDR`, so on macOS the second bind *succeeded* and the kernel handed each
+datagram to only one of the two sockets. Phones appeared to connect and then vanish; it
+read as a Wi-Fi problem, not a port clash.
+
+```
+phones ──8001──►  app  ──┬── MidiRouter ──► DAW
+                         └── viz/ws_server ──ws:8765──► browser
+```
+
+One process, one bind on 8001, no 8002 hop. `SO_REUSEADDR` is gone, so a real clash now
+raises and the Every Breath toolbar says so instead of the app half-working.
+
+`viz/ws_server.py` runs asyncio on its own thread. The constraint that shapes it:
+`publish_sample()` is called from the OSC thread — the same thread that does signal
+processing and MIDI — so it must never block, or a wedged browser would stall MIDI
+mid-performance. It does no I/O and touches no event loop; it assigns one dict key.
+
+Samples are **coalesced** rather than queued: only the newest value per device survives to
+the next 60Hz broadcast tick. That is what bounds the handoff — by device count, not packet
+rate — so a phone flood or a paused laptop cannot grow it. This costs nothing visually
+because index.html assigns each sample to `targetValue` and lerps toward it every frame, so
+a sample superseded within 16ms was never going to be drawn. Disconnects get their own
+buffer so a flood cannot crowd them out, and they are emitted before samples in a tick so a
+stale sample cannot resurrect a device that just dropped.
+
+Drop-outs reuse `MultiDeviceOscSource`'s existing 5s device timeout — the browser hears
+about the same event the device grid reacts to, rather than a second timer with its own
+opinion. Wire format is byte-identical to the old bridge, pinned by a test, since
+index.html is unchanged.
+
+`[viz]` in config.toml holds `ws_enabled` / `ws_port` / `ws_host`. A busy WS port is
+non-fatal: you lose the visualization, not MIDI.
+
+**Still open** — dummy-data mode.
 
 *Dummy-data mode*: port the pattern from
 `stop-and-let-the-rose-smell-v2/rose_breath/dummy_data.js`, which defines six synthetic
@@ -210,15 +246,6 @@ performers including a `'box'` shape (inhale/hold/exhale/hold). Injection point 
 `BreathSample`s exercises device registration, colors, timeout fade-out, and MIDI through
 the unchanged path — including one performer that drops out. The FSM tests already use
 these waveforms, so the app-level mode covers the same cases interactively.
-
-*Port map*: the rose visualization and the MIDI app collide. `osc_ws_bridge.py` binds
-8001 (phones), 8765 (browser WS), and forwards to 8002 — but `hub.py` hardcodes the
-multi-device listener to 8001 too, and `multi_osc.py` sets `SO_REUSEADDR`, so on macOS the
-second bind *succeeds* and the kernel splits datagrams between the two processes instead
-of erroring. That is why it presented as flaky phones rather than a crash. Fix: make the
-hub's port a config value and set it to 8002, keep the QR at 8001 (it tells phones where
-to send, and phones talk to the bridge), and drop `SO_REUSEADDR` so a real conflict fails
-loudly.
 
 ---
 

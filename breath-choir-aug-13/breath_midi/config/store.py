@@ -18,6 +18,7 @@ from breath_midi.config.model import (
     SustainTriggerConfig,
     TriggersConfig,
     UiConfig,
+    VizConfig,
 )
 
 try:
@@ -77,6 +78,7 @@ class ConfigStore:
         midi_raw = raw.get("midi", {})
         triggers_raw = raw.get("triggers", {})
         ui_raw = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
+        viz_raw = raw.get("viz", {}) if isinstance(raw.get("viz", {}), dict) else {}
 
         input_cfg = InputConfig(
             mode=_req_str(input_raw, "mode"),
@@ -207,6 +209,13 @@ class ConfigStore:
             midi_activity=midi_activity_cfg,
         )
 
+        _viz = VizConfig()
+        viz_cfg = VizConfig(
+            ws_enabled=bool(viz_raw.get("ws_enabled", _viz.ws_enabled)),
+            ws_port=int(viz_raw.get("ws_port", _viz.ws_port)),
+            ws_host=str(viz_raw.get("ws_host", _viz.ws_host)),
+        )
+
         return ConfigModel(
             version=version,
             controller_id=controller_id,
@@ -216,6 +225,7 @@ class ConfigStore:
             midi=midi_cfg,
             triggers=triggers_cfg,
             ui=ui_cfg,
+            viz=viz_cfg,
         )
 
     def save(self, cfg: ConfigModel) -> None:

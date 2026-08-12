@@ -110,3 +110,8 @@ held_lit_rgba = [
 velocity_bar_h = 6
 cc_bar_h = 8
 show_note_name = false
+
+[viz]
+ws_enabled = true
+ws_port = 8765
+ws_host = "localhost"

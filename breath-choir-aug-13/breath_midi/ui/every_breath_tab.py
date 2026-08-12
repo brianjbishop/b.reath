@@ -20,6 +20,19 @@ _RIGHT_W = 200
 # Colors.  Phase-vertex colors live in ui.widgets.phase_rhombus.
 _PLACEHOLDER_COLOR = (160, 160, 160)
 
+_STATUS_TAG = "eb_status"
+
+
+def set_status(message: str | None) -> None:
+    """
+    Show a start-up failure in the Every Breath toolbar, or clear it.
+
+    Lives at module level because TabActivityManager owns start/stop and has no
+    handle on the tab instance.
+    """
+    if dpg.does_item_exist(_STATUS_TAG):
+        dpg.set_value(_STATUS_TAG, message or "")
+
 
 class EveryBreathTab:
     """
@@ -69,6 +82,9 @@ class EveryBreathTab:
                     label="Show QR",
                     callback=lambda: show_qr_popup(8001, "breath-choir"),
                 )
+                dpg.add_spacer(width=20)
+                # Empty unless something failed to start — see set_status().
+                dpg.add_text("", tag=_STATUS_TAG, color=(230, 120, 100))
             dpg.add_separator()
             dpg.add_spacer(height=4)
 

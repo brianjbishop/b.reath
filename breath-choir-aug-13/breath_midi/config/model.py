@@ -134,6 +134,20 @@ class MidiActivityUiConfig:
 
 
 @dataclass(frozen=True)
+class VizConfig:
+    """
+    Browser visualization fan-out (rose_breath).
+
+    The app receives phone data on input.osc_port and rebroadcasts it here, so
+    there is no separate bridge process and nothing else binds the OSC port.
+    """
+
+    ws_enabled: bool = True
+    ws_port: int = 8765
+    ws_host: str = "localhost"
+
+
+@dataclass(frozen=True)
 class UiConfig:
     window_width: int = 1320
     window_height: int = 880
@@ -154,4 +168,5 @@ class ConfigModel:
     midi: MidiConfig
     triggers: TriggersConfig
     ui: UiConfig
+    viz: VizConfig = field(default_factory=VizConfig)
 

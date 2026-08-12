@@ -11,8 +11,12 @@ from breath_midi.every_breath.registry import DeviceEntry, DeviceRegistry
 from breath_midi.midi.activity_bus import MidiActivityBus
 from breath_midi.midi.mido_sink import MidoMidiSink
 from breath_midi.types import BreathSample, Phase
+from breath_midi.viz.ws_server import BreathWebSocketServer
 
 _WAVEFORM_MAXLEN = 600
+# Phones send here.  Every Breath / Group Breath share it and are mutually
+# exclusive, and nothing else binds it now that the bridge is in-process.
+_OSC_PORT = 8001
 
 
 @dataclass
@@ -48,9 +52,10 @@ class EveryBreathHub:
       - One shared MidoMidiSink for all devices (single OSC thread, no lock needed)
     """
 
-    def __init__(self, config: ConfigModel) -> None:
+    def __init__(self, config: ConfigModel, osc_port: int = _OSC_PORT) -> None:
         self.registry = DeviceRegistry()
         self._config = config
+        self._osc_port = int(osc_port)
         self._activity_bus = MidiActivityBus()
         self._midi_sink: MidoMidiSink | None = None
         self._source: MultiDeviceOscSource | None = None
@@ -58,10 +63,21 @@ class EveryBreathHub:
         self._waveform_bufs: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
         self._listening = False
+        self._ws: BreathWebSocketServer | None = None
+        # Surfaced in the Every Breath toolbar; None when the fan-out is healthy.
+        self.viz_error: str | None = None
 
     # ── public lifecycle ──────────────────────────────────────────────────────
 
     def start_listening(self, out_port: str | None = None) -> None:
+        """
+        Bind the OSC port and start the visualization fan-out.
+
+        Raises OSError if the OSC port is already in use.  That used to be
+        silently survivable via SO_REUSEADDR, which was the whole bug behind
+        the old bridge setup — see multi_osc.start().  Callers are expected to
+        report the failure and stay stopped.
+        """
         if self._listening:
             return
         if self._midi_sink is None:
@@ -73,15 +89,37 @@ class EveryBreathHub:
                 self._midi_sink.open(out_port)
             except Exception as exc:
                 print(f"[EveryBreath] MIDI open failed: {exc}")
-        self._source = MultiDeviceOscSource(
-            port=8001,
+        source = MultiDeviceOscSource(
+            port=self._osc_port,
             on_sample_cb=self._on_sample,
             on_new_device_cb=self._on_new_device,
             on_timeout_cb=self._on_timeout,
         )
-        self._source.start()
+        # Bind before assigning to self._source so a failure leaves the hub
+        # cleanly stopped rather than holding a half-started source.
+        source.start()
+        self._source = source
         self._listening = True
-        print("Every Breath listening on port 8001")
+        print(f"Every Breath listening on port {self._osc_port}")
+        self._start_viz()
+
+    def _start_viz(self) -> None:
+        """
+        Start the browser fan-out.  Never fatal: a busy 8765 costs you the
+        visualization, and taking MIDI down with it would be worse.
+        """
+        cfg = self._config.viz
+        if not cfg.ws_enabled:
+            return
+        server = BreathWebSocketServer(port=cfg.ws_port, host=cfg.ws_host)
+        try:
+            server.start()
+        except Exception as exc:
+            self.viz_error = f"visualization off — port {cfg.ws_port}: {exc}"
+            print(f"[viz] WebSocket start failed: {exc}")
+            return
+        self._ws = server
+        self.viz_error = None
 
     def stop_listening(self) -> None:
         if not self._listening:
@@ -89,6 +127,9 @@ class EveryBreathHub:
         if self._source is not None:
             self._source.stop()
             self._source = None
+        if self._ws is not None:
+            self._ws.stop()
+            self._ws = None
         self._listening = False
         self.registry.mark_all_disconnected()
         # Close the MIDI sink so start_listening() opens a fresh one.
@@ -307,10 +348,22 @@ class EveryBreathHub:
 
     def _on_timeout(self, uuid: str) -> None:
         self.registry.mark_disconnected(uuid)
+        # Reuses MultiDeviceOscSource's existing 5s timeout — the browser is told
+        # about the same drop-out the device grid already reacts to, rather than
+        # a second timer with its own idea of when a phone is gone.
+        if self._ws is not None:
+            self._ws.publish_disconnect(uuid)
         print(f"Device disconnected: {uuid}")
 
     def _on_sample(self, sample: BreathSample) -> None:
         uuid = sample.source_id
+
+        # Fan out to the browser first, and unconditionally.  The visualization
+        # shows breathing, not MIDI: a muted or soloed-out performer still draws,
+        # and a device whose runtime has not been built yet still draws.  This is
+        # a dict assignment — it cannot block this thread.  See ws_server.
+        if self._ws is not None:
+            self._ws.publish_sample(uuid, float(sample.amp))
 
         # set_activity_source_id is called here without a lock because
         # _on_sample is always invoked from the single OSC receive thread.

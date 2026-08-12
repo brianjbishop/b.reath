@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import dearpygui.dearpygui as dpg
 
+from breath_midi.ui.every_breath_tab import set_status
+
 # DPG tags for the three circle buttons — must match what _build() creates.
 _CIRCLE_TAGS: dict[str, str] = {
     "Single Breath": "circle_single",
@@ -47,9 +49,20 @@ class TabActivityManager:
             self._runtime.start()
         elif tab_name in ("Every Breath", "Group Breath") and self._eb_hub is not None:
             out_port = self._runtime.config.midi.out_port.strip() or None
-            self._eb_hub.start_listening(out_port)
+            try:
+                self._eb_hub.start_listening(out_port)
+            except OSError as exc:
+                # The OSC port is taken — most likely a second copy of the app,
+                # or an old standalone osc_ws_bridge.py still running.  Report it
+                # and leave the tab off; silently continuing is what made this
+                # class of failure so hard to diagnose before.
+                set_status(f"Could not start: {exc}")
+                print(f"[EveryBreath] start failed: {exc}")
+                return
         self._active = tab_name
         self._update_circles()
+        if tab_name in ("Every Breath", "Group Breath") and self._eb_hub is not None:
+            set_status(getattr(self._eb_hub, "viz_error", None))
 
     def _deactivate(self, tab_name: str) -> None:
         self._send_all_notes_off(tab_name)
@@ -59,6 +72,7 @@ class TabActivityManager:
             # Mutual exclusion guarantees the other hub-sharing tab is already
             # inactive, so stopping the listener here is always safe.
             self._eb_hub.stop_listening()
+            set_status(None)
         self._active = None
         self._update_circles()
 

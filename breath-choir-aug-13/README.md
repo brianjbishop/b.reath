@@ -7,7 +7,9 @@ Breath-driven MIDI tooling for the **TOTEM** iOS app: a **Breath → MIDI** cont
 | Piece | Purpose |
 |--------|--------|
 | **`breath_midi/`** | Main app: TOTEM breath over **BLE** or **OSC**, signal processing, triggers, MIDI out. UI is one Dear PyGui window (live monitor, plot, tabs for Input / Detection / MIDI / Triggers). |
-| **`config.toml`** | Controller settings (input, signal, detection, MIDI, triggers). |
+| **`config.toml`** | Controller settings (input, signal, detection, MIDI, triggers, viz). |
+| **`rose_breath/`** | Browser visualization (p5.js). Open `index.html` while Every Breath or Group Breath is active — the app serves the WebSocket itself, there is no bridge process to start. |
+| **`tests/`** | `python -m pytest tests/` — phase FSM, hold triggers, WebSocket fan-out, device-card UI. Needs `requirements-dev.txt`. |
 | **`totem_ble_viewer.py`** | Optional **viewer-only** script: same TOTEM BLE/OSC protocols, scrolling plot—useful when you only want to monitor breath, not drive MIDI. |
 | **`Start.command`** | Double-click launcher (macOS): `cd` here, activates `.venv`, runs `python -m breath_midi.app`. |
 
