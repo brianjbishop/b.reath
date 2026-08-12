@@ -6,17 +6,15 @@ from dataclasses import dataclass, replace
 
 GOLDEN_RATIO_CONJUGATE = 0.618033988749895
 
-# F#maj7 note pairs (inhale, exhale) assigned to devices in order.
-# When more devices connect than pairs exist, the sequence repeats one
-# octave higher (octave_offset = 12 per full cycle).
-_DEVICE_NOTE_PAIRS: list[tuple[int, int]] = [
-    (54, 58),
-    (61, 65),
-    (73, 77),
-    (85, 89),
-    (97, 101),
-    (109, 113),
-]
+# Sequential note assignment: device N gets (BASE + 2N, BASE + 2N + 1) as its
+# inhale and exhale.  Device 1 -> 54/55, device 2 -> 56/57, and so on.
+#
+# This replaces an F#maj7 chord-tone table.  Chord tones baked a harmonic
+# choice into the device registry, where it could not be changed without
+# renumbering every performer; plain consecutive notes leave that choice to the
+# instrument in the DAW.
+_NOTE_BASE = 54
+_NOTES_PER_DEVICE = 2
 
 
 def generate_device_color(index: int) -> tuple[int, int, int]:
@@ -46,13 +44,10 @@ class DeviceEntry:
     cc_value: int = 127
     cons_n: int = 3
     cons_tolerance: float = 0.30
-    # Hold notes seed from this device's own inhale/exhale numbers so enabling a
-    # hold can never collide with another device's assignment.  Both start
-    # disabled: inhale/exhale output is unchanged until a hold is switched on.
-    hold_full_note: int = 0
-    hold_empty_note: int = 0
-    hold_full_enabled: bool = False
-    hold_empty_enabled: bool = False
+    # 0 means the hold is silent — it releases whatever the inhale or exhale was
+    # holding down and plays nothing.  That is the default, and it is why there
+    # is no separate enable flag: the note number carries it.
+    hold_note: int = 0
 
 
 class DeviceRegistry:
@@ -77,10 +72,8 @@ class DeviceRegistry:
                 return self._entries[uuid], False
             idx = self._next_index
             self._next_index += 1
-            pair_idx = idx % len(_DEVICE_NOTE_PAIRS)
-            octave_offset = (idx // len(_DEVICE_NOTE_PAIRS)) * 12
-            inhale_note = _DEVICE_NOTE_PAIRS[pair_idx][0] + octave_offset
-            exhale_note = _DEVICE_NOTE_PAIRS[pair_idx][1] + octave_offset
+            inhale_note = _NOTE_BASE + idx * _NOTES_PER_DEVICE
+            exhale_note = inhale_note + 1
             entry = DeviceEntry(
                 uuid=uuid,
                 inhale_note=inhale_note,
@@ -88,8 +81,6 @@ class DeviceRegistry:
                 display_order=idx,
                 color=generate_device_color(idx),
                 name=uuid[:15],
-                hold_full_note=inhale_note,
-                hold_empty_note=exhale_note,
             )
             self._entries[uuid] = entry
             return entry, True
@@ -134,25 +125,10 @@ class DeviceRegistry:
             if uuid in self._entries:
                 self._entries[uuid] = replace(self._entries[uuid], exhale_note=note)
 
-    def set_hold_full_note(self, uuid: str, note: int) -> None:
+    def set_hold_note(self, uuid: str, note: int) -> None:
         with self._lock:
             if uuid in self._entries:
-                self._entries[uuid] = replace(self._entries[uuid], hold_full_note=note)
-
-    def set_hold_empty_note(self, uuid: str, note: int) -> None:
-        with self._lock:
-            if uuid in self._entries:
-                self._entries[uuid] = replace(self._entries[uuid], hold_empty_note=note)
-
-    def set_hold_full_enabled(self, uuid: str, enabled: bool) -> None:
-        with self._lock:
-            if uuid in self._entries:
-                self._entries[uuid] = replace(self._entries[uuid], hold_full_enabled=enabled)
-
-    def set_hold_empty_enabled(self, uuid: str, enabled: bool) -> None:
-        with self._lock:
-            if uuid in self._entries:
-                self._entries[uuid] = replace(self._entries[uuid], hold_empty_enabled=enabled)
+                self._entries[uuid] = replace(self._entries[uuid], hold_note=note)
 
     def set_color(self, uuid: str, color: tuple[int, int, int]) -> None:
         with self._lock:

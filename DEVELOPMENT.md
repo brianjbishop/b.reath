@@ -237,6 +237,45 @@ index.html is unchanged.
 `[viz]` in config.toml holds `ws_enabled` / `ws_port` / `ws_host`. A busy WS port is
 non-fatal: you lose the visualization, not MIDI.
 
+**Three phases, gated notes** — the four-phase model collapsed to INHALE / HOLD /
+EXHALE. One HOLD state, entered from either end; the rhombus still shows four vertices
+and lights top or bottom by amplitude, so the cycle stays readable without the detector
+inventing a distinction it cannot reliably make.
+
+*A hold is now defined by position, not by where it came from.* It must sit inside the
+peak or valley band and stay still there for `min_hold_ms`. That fixes the failure the
+arrival-phase rule had: a pause halfway up an inhale used to register as a hold.
+
+*And a hold latches.* Upstream normalisation is a rolling min/max, so holding your breath
+makes the window forget the breathing that set its range and the reported value drifts
+even though the performer is motionless. That drift has slope, and a slope-based exit
+reads it as a fresh breath — the hold ends silently while the performer is still holding.
+Exit is on **displacement** (`hold_exit_delta`) instead: drift is slow and bounded, a real
+breath is neither. Measured result — a hold survives to 16s on TOTEM Live and 5s on the
+older TOTEM, matching each app's window exactly. Past that the signal itself is gone.
+
+*Notes are gates, not one-shots.* `midi/voice.py` owns one sounding note per device:
+release the old, then press the new, always in that order so two phases sharing a note
+retrigger rather than fall silent. At most one note is down at any instant, and that is
+structural rather than emergent — four independent onset strategies could not guarantee
+it. Every path that ends a phase without starting another releases: mute, solo-out,
+device timeout, gate close, CC-mode switch, stop, tab switch, app exit.
+
+Defaults changed: notes are sequential from 54 (device 1 = 54/55, device 2 = 56/57),
+replacing the F#maj7 pairs, and `hold_note` is **0 = silent**, which also replaced the
+per-hold enable checkboxes — the number carries it.
+
+Two bugs found by the tests, both of which would have bitten in performance: the first
+breath of every session registered as a hold, because a min/max normaliser reports
+exactly 1.0 while its buffer fills (holds now wait for one completed cycle); and phase
+chatter on noisy data reset the hold window before it could ever accumulate, so holds
+were undetectable on real signals.
+
+Known limits, recorded in tests rather than papered over: inhaling *deeper* from a peak
+hold is invisible (the running maximum is 1.0 by definition, so doubling the roll moves
+the value ~0.02), and at the default 1000ms dwell a very slow breather's turnaround does
+register as a hold — `min_hold_ms` is the knob, and ~1600ms clears a 10s breath.
+
 **Still open** — dummy-data mode.
 
 *Dummy-data mode*: port the pattern from

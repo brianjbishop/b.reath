@@ -37,10 +37,7 @@ class DeviceUISnapshot:
     cons_n: int
     cons_tolerance: float
     consistent_gate_open: bool
-    hold_full_note: int
-    hold_empty_note: int
-    hold_full_enabled: bool
-    hold_empty_enabled: bool
+    hold_note: int
 
 
 class EveryBreathHub:
@@ -130,6 +127,12 @@ class EveryBreathHub:
         if self._ws is not None:
             self._ws.stop()
             self._ws = None
+        # Release every held note while the sink is still open.
+        for runtime in self._runtimes.values():
+            try:
+                runtime.release()
+            except Exception:
+                pass
         self._listening = False
         self.registry.mark_all_disconnected()
         # Close the MIDI sink so start_listening() opens a fresh one.
@@ -193,10 +196,7 @@ class EveryBreathHub:
                     cons_n=entry.cons_n,
                     cons_tolerance=entry.cons_tolerance,
                     consistent_gate_open=runtime.get_gate_open() if runtime is not None else True,
-                    hold_full_note=entry.hold_full_note,
-                    hold_empty_note=entry.hold_empty_note,
-                    hold_full_enabled=entry.hold_full_enabled,
-                    hold_empty_enabled=entry.hold_empty_enabled,
+                    hold_note=entry.hold_note,
                 )
             )
         return result
@@ -221,7 +221,7 @@ class EveryBreathHub:
         self.registry.set_exhale_note(uuid, exhale_note)
         runtime = self._runtimes.get(uuid)
         if runtime is not None:
-            runtime.set_notes(inhale_note, exhale_note)
+            runtime.set_notes(inhale_note, exhale_note, entry.hold_note)
 
     def set_cc_mode(self, uuid: str, cc_mode: bool) -> None:
         self.registry.set_cc_mode(uuid, cc_mode)
@@ -235,8 +235,7 @@ class EveryBreathHub:
                 if entry is not None:
                     runtime.set_inhale_cc(entry.inhale_note)
                     runtime.set_exhale_cc(entry.exhale_note)
-                    runtime.set_hold_full_cc(entry.hold_full_note)
-                    runtime.set_hold_empty_cc(entry.hold_empty_note)
+                    runtime.set_hold_cc(entry.hold_note)
 
     def set_inhale_number(self, uuid: str, value: int) -> None:
         entry = self.registry.get(uuid)
@@ -249,7 +248,7 @@ class EveryBreathHub:
         if entry.cc_mode:
             runtime.set_inhale_cc(value)
         else:
-            runtime.set_notes(value, entry.exhale_note)
+            runtime.set_notes(value, entry.exhale_note, entry.hold_note)
 
     def set_exhale_number(self, uuid: str, value: int) -> None:
         entry = self.registry.get(uuid)
@@ -262,47 +261,21 @@ class EveryBreathHub:
         if entry.cc_mode:
             runtime.set_exhale_cc(value)
         else:
-            runtime.set_notes(entry.inhale_note, value)
+            runtime.set_notes(entry.inhale_note, value, entry.hold_note)
 
-    def set_hold_full_number(self, uuid: str, value: int) -> None:
+    def set_hold_number(self, uuid: str, value: int) -> None:
+        """Set this device's hold note (or CC number).  0 means silent."""
         entry = self.registry.get(uuid)
         if entry is None:
             return
-        self.registry.set_hold_full_note(uuid, value)
+        self.registry.set_hold_note(uuid, value)
         runtime = self._runtimes.get(uuid)
         if runtime is None:
             return
         if entry.cc_mode:
-            runtime.set_hold_full_cc(value)
+            runtime.set_hold_cc(value)
         else:
-            runtime.set_hold_notes(value, entry.hold_empty_note)
-
-    def set_hold_empty_number(self, uuid: str, value: int) -> None:
-        entry = self.registry.get(uuid)
-        if entry is None:
-            return
-        self.registry.set_hold_empty_note(uuid, value)
-        runtime = self._runtimes.get(uuid)
-        if runtime is None:
-            return
-        if entry.cc_mode:
-            runtime.set_hold_empty_cc(value)
-        else:
-            runtime.set_hold_notes(entry.hold_full_note, value)
-
-    def set_hold_full_enabled(self, uuid: str, enabled: bool) -> None:
-        self.registry.set_hold_full_enabled(uuid, enabled)
-        entry = self.registry.get(uuid)
-        runtime = self._runtimes.get(uuid)
-        if entry is not None and runtime is not None:
-            runtime.set_hold_enabled(enabled, entry.hold_empty_enabled)
-
-    def set_hold_empty_enabled(self, uuid: str, enabled: bool) -> None:
-        self.registry.set_hold_empty_enabled(uuid, enabled)
-        entry = self.registry.get(uuid)
-        runtime = self._runtimes.get(uuid)
-        if entry is not None and runtime is not None:
-            runtime.set_hold_enabled(entry.hold_full_enabled, enabled)
+            runtime.set_notes(entry.inhale_note, entry.exhale_note, value)
 
     def set_cc_value(self, uuid: str, value: int) -> None:
         self.registry.set_cc_value(uuid, value)
@@ -333,10 +306,7 @@ class EveryBreathHub:
                 self._config,
                 entry.inhale_note,
                 entry.exhale_note,
-                hold_full_note=entry.hold_full_note,
-                hold_empty_note=entry.hold_empty_note,
-                hold_full_enabled=entry.hold_full_enabled,
-                hold_empty_enabled=entry.hold_empty_enabled,
+                hold_note=entry.hold_note,
             )
             self._runtimes[uuid] = DeviceRuntime(device_cfg, self._midi_sink)
             with self._lock:
@@ -348,6 +318,11 @@ class EveryBreathHub:
 
     def _on_timeout(self, uuid: str) -> None:
         self.registry.mark_disconnected(uuid)
+        # A device that stopped sending is holding a key down.  Release it here
+        # or it rings until something else happens to clear it.
+        runtime = self._runtimes.get(uuid)
+        if runtime is not None:
+            runtime.release()
         # Reuses MultiDeviceOscSource's existing 5s timeout — the browser is told
         # about the same drop-out the device grid already reacts to, rather than
         # a second timer with its own idea of when a phone is gone.

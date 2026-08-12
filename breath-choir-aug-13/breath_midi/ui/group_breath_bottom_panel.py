@@ -30,6 +30,7 @@ class GroupBreathBottomPanel:
 
     def __init__(self, hub: EveryBreathHub, parent_tag: str) -> None:
         self._hub = hub
+        self._peak_band = float(hub._config.detection.hold_peak_band)
         self._parent = parent_tag
         self._built_uuids: list[str] = []
         self._panel_tag = "gb_bottom_panel"
@@ -142,6 +143,8 @@ class GroupBreathBottomPanel:
                     color=snap.color,
                     active=True,
                     size=44,
+                    amp=snap.raw_amp,
+                    peak_band=self._peak_band,
                 )
                 dpg.add_spacer(width=6)
                 dpg.add_text("Gate")
@@ -266,45 +269,18 @@ class GroupBreathBottomPanel:
                     user_data=snap.uuid,
                 )
 
-            # Rows 7a/7b: the two hold numbers.  Checkbox gates each one — holds
-            # stay silent until deliberately switched on.
+            # Row 7: hold number. 0 = silent, so no enable checkbox.
             with dpg.group(horizontal=True):
-                dpg.add_checkbox(
-                    tag=f"gb_strip_hf_en_{snap.uuid}",
-                    default_value=snap.hold_full_enabled,
-                    callback=lambda s, a, u: self._on_hold_full_enabled(u, a),
-                    user_data=snap.uuid,
-                )
-                dpg.add_text("Hf#:")
+                dpg.add_text("Hd#:")
                 dpg.add_input_int(
-                    tag=f"gb_strip_hf_num_{snap.uuid}",
-                    default_value=snap.hold_full_note,
+                    tag=f"gb_strip_h_num_{snap.uuid}",
+                    default_value=snap.hold_note,
                     width=60,
                     min_value=0,
                     max_value=127,
                     step=0,
                     on_enter=True,
-                    callback=lambda s, a, u: self._on_hold_full_num_change(u, a),
-                    user_data=snap.uuid,
-                )
-
-            with dpg.group(horizontal=True):
-                dpg.add_checkbox(
-                    tag=f"gb_strip_he_en_{snap.uuid}",
-                    default_value=snap.hold_empty_enabled,
-                    callback=lambda s, a, u: self._on_hold_empty_enabled(u, a),
-                    user_data=snap.uuid,
-                )
-                dpg.add_text("He#:")
-                dpg.add_input_int(
-                    tag=f"gb_strip_he_num_{snap.uuid}",
-                    default_value=snap.hold_empty_note,
-                    width=60,
-                    min_value=0,
-                    max_value=127,
-                    step=0,
-                    on_enter=True,
-                    callback=lambda s, a, u: self._on_hold_empty_num_change(u, a),
+                    callback=lambda s, a, u: self._on_hold_num_change(u, a),
                     user_data=snap.uuid,
                 )
 
@@ -346,6 +322,8 @@ class GroupBreathBottomPanel:
                 phase=snap.phase,
                 color=snap.color,
                 active=True,
+                amp=snap.raw_amp,
+                peak_band=self._peak_band,
             )
 
             gate_rect = f"gb_strip_gate_rect_{uuid}"
@@ -399,25 +377,10 @@ class GroupBreathBottomPanel:
                 if int(dpg.get_value(exh_num)) != snap.exhale_note:
                     dpg.set_value(exh_num, snap.exhale_note)
 
-            hf_num = f"gb_strip_hf_num_{uuid}"
-            if dpg.does_item_exist(hf_num):
-                if int(dpg.get_value(hf_num)) != snap.hold_full_note:
-                    dpg.set_value(hf_num, snap.hold_full_note)
-
-            he_num = f"gb_strip_he_num_{uuid}"
-            if dpg.does_item_exist(he_num):
-                if int(dpg.get_value(he_num)) != snap.hold_empty_note:
-                    dpg.set_value(he_num, snap.hold_empty_note)
-
-            hf_en = f"gb_strip_hf_en_{uuid}"
-            if dpg.does_item_exist(hf_en):
-                if bool(dpg.get_value(hf_en)) != snap.hold_full_enabled:
-                    dpg.set_value(hf_en, snap.hold_full_enabled)
-
-            he_en = f"gb_strip_he_en_{uuid}"
-            if dpg.does_item_exist(he_en):
-                if bool(dpg.get_value(he_en)) != snap.hold_empty_enabled:
-                    dpg.set_value(he_en, snap.hold_empty_enabled)
+            h_num = f"gb_strip_h_num_{uuid}"
+            if dpg.does_item_exist(h_num):
+                if int(dpg.get_value(h_num)) != snap.hold_note:
+                    dpg.set_value(h_num, snap.hold_note)
 
     # ── interaction callbacks ─────────────────────────────────────────────────
 
@@ -454,17 +417,8 @@ class GroupBreathBottomPanel:
     def _on_exhale_num_change(self, uuid: str, value: int) -> None:
         self._hub.set_exhale_number(uuid, int(value))
 
-    def _on_hold_full_num_change(self, uuid: str, value: int) -> None:
-        self._hub.set_hold_full_number(uuid, int(value))
-
-    def _on_hold_empty_num_change(self, uuid: str, value: int) -> None:
-        self._hub.set_hold_empty_number(uuid, int(value))
-
-    def _on_hold_full_enabled(self, uuid: str, value: bool) -> None:
-        self._hub.set_hold_full_enabled(uuid, bool(value))
-
-    def _on_hold_empty_enabled(self, uuid: str, value: bool) -> None:
-        self._hub.set_hold_empty_enabled(uuid, bool(value))
+    def _on_hold_num_change(self, uuid: str, value: int) -> None:
+        self._hub.set_hold_number(uuid, int(value))
 
     def _on_cc_value_change(self, uuid: str, value: int) -> None:
         self._hub.set_cc_value(uuid, int(value))

@@ -33,15 +33,36 @@ class DetectionConfig:
     slope_rest_abs: float
     hysteresis: float
     min_phase_ms: int
-    # Hold detection.  A hold is a breath that barely moves for min_hold_ms;
-    # the allowed movement is slope_rest_abs * min_hold_ms.  min_phase_ms is far
-    # too short to use here — hence a separate, much longer knob.
+    # Hold detection.  A hold is the breath sitting near the top or the bottom
+    # of its range and staying there: inside a band, moving less than
+    # hold_still_tol, for min_hold_ms.  Requiring a band is what separates a
+    # deliberate hold from a mid-breath hesitation — a pause at 0.5 is someone
+    # thinking about it, not holding.
     #
-    # 1000ms is deliberate rather than conservative.  The turnaround of a very
-    # slow deep breath is near-stationary for roughly half a second, so a
-    # shorter window cannot tell a deliberate hold from ordinary slow breathing.
+    # The bands are fractions of the performer's own recent range, because the
+    # incoming value is already normalised per device upstream.  That is what
+    # makes one setting work for a shallow breather and a deep one.
+    # min_hold_ms must exceed the natural turnaround of a smooth breath, or
+    # ordinary breathing registers as holding.  At the peak of a 5s sine the
+    # value moves only 0.048 over 700ms — inside hold_still_tol — but 0.096
+    # over 1000ms, which is not.  Slower breathers need more still: a 10s
+    # breath needs about 1500ms.  That trade-off is real and unavoidable.
     hold_enabled: bool = True
     min_hold_ms: int = 1000
+    hold_peak_band: float = 0.80
+    hold_valley_band: float = 0.20
+    hold_still_tol: float = 0.05
+    # Once a hold latches it is held until the breath *moves away* by this much
+    # from where it latched — slope alone is not enough to break it.
+    #
+    # This exists because the upstream normalisation is a rolling min/max: hold
+    # your breath and the window gradually forgets the breathing that set its
+    # range, so the reported value drifts even though the performer is still.
+    # That drift has slope, and a slope-based exit reads it as a new inhale or
+    # exhale — the hold silently ends while the performer is still holding.
+    # Displacement does not have that problem: drift is slow and bounded, a real
+    # breath is neither.
+    hold_exit_delta: float = 0.15
 
 
 @dataclass(frozen=True)
@@ -71,9 +92,9 @@ class ExhaleOnsetTriggerConfig:
 @dataclass(frozen=True)
 class HoldOnsetTriggerConfig:
     """
-    Fires when the FSM commits to a breath hold.  Disabled by default: holds
-    are additive, so an existing set keeps its exact inhale/exhale output until
-    a hold is deliberately switched on.
+    Fires when the FSM commits to a breath hold.  Note 0 means silent, which is
+    the default: a hold releases whatever was sounding and plays nothing until
+    a note is deliberately assigned.
     """
 
     enabled: bool
@@ -112,14 +133,9 @@ class TriggersConfig:
     inhale_sustain: SustainTriggerConfig
     exhale_sustain: SustainTriggerConfig
     consistent_breaths: ConsistentBreathsTriggerConfig
-    hold_full_onset: HoldOnsetTriggerConfig = field(
+    hold_onset: HoldOnsetTriggerConfig = field(
         default_factory=lambda: HoldOnsetTriggerConfig(
-            enabled=False, note=67, velocity=100, debounce_ms=200
-        )
-    )
-    hold_empty_onset: HoldOnsetTriggerConfig = field(
-        default_factory=lambda: HoldOnsetTriggerConfig(
-            enabled=False, note=60, velocity=100, debounce_ms=200
+            enabled=False, note=0, velocity=100, debounce_ms=200
         )
     )
 

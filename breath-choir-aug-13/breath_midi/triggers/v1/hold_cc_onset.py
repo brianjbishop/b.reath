@@ -4,17 +4,17 @@ from breath_midi.triggers.base import TriggerContext, TriggerStrategy
 from breath_midi.types import FeatureFrame, Phase, TriggerEvent, TriggerKind
 
 
-class _HoldCcOnsetTrigger(TriggerStrategy):
+class HoldCcOnsetTrigger(TriggerStrategy):
     """
-    Fires a single CC message on entry to a hold phase.
+    Fires a single CC message when the FSM latches a hold.
 
-    One shot on phase transition — not continuous.  Reuses the matching hold
-    onset config for its enabled flag and debounce_ms, exactly as the inhale and
-    exhale CC triggers reuse theirs.
+    One shot on the transition, not continuous. Reuses the hold onset config for
+    its enabled flag and debounce_ms, exactly as the inhale and exhale CC
+    triggers reuse theirs.
     """
 
-    phase: Phase
-    config_key: str
+    id = "hold_cc_onset"
+    display_name = "Hold CC onset"
 
     def __init__(self, cc_number: int = 1, cc_value: int = 127) -> None:
         self._cc_number = cc_number
@@ -26,10 +26,10 @@ class _HoldCcOnsetTrigger(TriggerStrategy):
         self._cc_value = cc_value
 
     def on_frame(self, frame: FeatureFrame, ctx: TriggerContext) -> list[TriggerEvent]:
-        cfg = getattr(ctx.config.triggers, self.config_key)
-        if not cfg.enabled:
+        cfg = ctx.config.triggers.hold_onset
+        if not cfg.enabled or int(self._cc_number) == 0:
             return []
-        if not frame.phase_changed or frame.phase_entered != self.phase:
+        if not frame.phase_changed or frame.phase_entered != Phase.HOLD:
             return []
 
         key = f"{self.id}_last_t"
@@ -48,17 +48,3 @@ class _HoldCcOnsetTrigger(TriggerStrategy):
                 meta={"cc": self._cc_number},
             )
         ]
-
-
-class HoldFullCcOnsetTrigger(_HoldCcOnsetTrigger):
-    id = "hold_full_cc_onset"
-    display_name = "Hold (full) CC onset"
-    phase = Phase.HOLD_FULL
-    config_key = "hold_full_onset"
-
-
-class HoldEmptyCcOnsetTrigger(_HoldCcOnsetTrigger):
-    id = "hold_empty_cc_onset"
-    display_name = "Hold (empty) CC onset"
-    phase = Phase.HOLD_EMPTY
-    config_key = "hold_empty_onset"

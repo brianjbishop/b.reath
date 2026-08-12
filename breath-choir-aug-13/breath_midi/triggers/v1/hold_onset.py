@@ -4,23 +4,23 @@ from breath_midi.triggers.base import TriggerContext, TriggerStrategy
 from breath_midi.types import FeatureFrame, Phase, TriggerEvent, TriggerKind
 
 
-class _HoldOnsetTrigger(TriggerStrategy):
+class HoldOnsetTrigger(TriggerStrategy):
     """
-    Fires a note on entry to a hold phase.
+    Fires a note when the FSM latches a hold.
 
-    Shared by the two holds because they differ only in which phase they watch
-    and which config block they read — unlike inhale/exhale, which were written
-    out separately before there was a second pair to share with.
+    Note 0 means silent — the hold still happens, it just plays nothing. In the
+    multi-device path the note lifecycle is owned by BreathVoice instead; this
+    strategy is what Single Breath uses.
     """
 
-    phase: Phase
-    config_key: str
+    id = "hold_onset"
+    display_name = "Hold onset"
 
     def on_frame(self, frame: FeatureFrame, ctx: TriggerContext) -> list[TriggerEvent]:
-        cfg = getattr(ctx.config.triggers, self.config_key)
-        if not cfg.enabled:
+        cfg = ctx.config.triggers.hold_onset
+        if not cfg.enabled or int(cfg.note) == 0:
             return []
-        if not frame.phase_changed or frame.phase_entered != self.phase:
+        if not frame.phase_changed or frame.phase_entered != Phase.HOLD:
             return []
 
         key = f"{self.id}_last_t"
@@ -39,17 +39,3 @@ class _HoldOnsetTrigger(TriggerStrategy):
                 meta={"note": int(cfg.note)},
             )
         ]
-
-
-class HoldFullOnsetTrigger(_HoldOnsetTrigger):
-    id = "hold_full_onset"
-    display_name = "Hold (full) onset"
-    phase = Phase.HOLD_FULL
-    config_key = "hold_full_onset"
-
-
-class HoldEmptyOnsetTrigger(_HoldOnsetTrigger):
-    id = "hold_empty_onset"
-    display_name = "Hold (empty) onset"
-    phase = Phase.HOLD_EMPTY
-    config_key = "hold_empty_onset"

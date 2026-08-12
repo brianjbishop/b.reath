@@ -42,6 +42,11 @@ class FeatureExtractor:
         # See _held_flat() for why this measures amplitude, not slope.
         self._amp_window: deque[tuple[float, float]] = deque()
 
+        # Amplitude at the moment HOLD latched.  The hold is measured against
+        # this, not against the moving signal, so upstream renormalisation
+        # drift cannot end it.  None whenever the phase is not HOLD.
+        self._hold_latch_amp: float | None = None
+
         # cycle tracking
         self._cycle_anchored: bool = False
         self._cycle_start_t: float | None = None
@@ -118,12 +123,16 @@ class FeatureExtractor:
         if phase_changed:
             self._phase = phase_next
             self._phase_enter_t = t
-            # Reset the hold window on every phase change.  Without this, the
-            # flat samples from a hold would still be in the window when the
-            # next phase begins and could immediately re-trip a hold — most
-            # visibly a slow exhale leaving HOLD_FULL straight into HOLD_EMPTY.
-            self._amp_window.clear()
-            self._amp_window.append((t, amp))
+            # Anchor the hold where it started, and drop the anchor on the way
+            # out so the next hold measures from its own starting point.
+            self._hold_latch_amp = amp if phase_next == Phase.HOLD else None
+            # NOTE: the hold window is deliberately *not* cleared here.  It used
+            # to be, to stop one phase's samples bleeding into the next — but
+            # that made holds impossible to detect on real data: noise makes the
+            # phase flip between inhale and exhale while the performer sits
+            # still, and each flip reset the window before it could ever
+            # accumulate min_hold_ms.  The band test and hold_exit_delta already
+            # prevent the bleed-through that clearing was there to stop.
 
         rolling = RollingStats(
             avg_period_s=self._avg_period.y,
@@ -148,25 +157,38 @@ class FeatureExtractor:
 
     def _held_flat(self) -> bool:
         """
-        True when the breath has barely moved for a full min_hold_ms window.
+        True when the breath has sat inside the peak or valley band, barely
+        moving, for a full min_hold_ms window.
 
-        Flatness is measured as *amplitude excursion* over the window rather
-        than as a small derivative, for two reasons found while testing:
+        Two conditions, and both matter:
 
-        1. The derivative is EMA-smoothed, so it lags.  After a two-second
-           inhale the smoothed slope needs roughly 300ms to decay below any
-           flat threshold, which would silently shorten every detected hold
-           and make short holds undetectable.
-        2. Excursion is what "holding your breath" actually means, and it is
-           unaffected by how fast the performer was moving beforehand.
+        *Stillness* is measured as amplitude excursion over the window rather
+        than as a small derivative.  The derivative is EMA-smoothed, so it
+        lags — after a two-second inhale the smoothed slope needs roughly
+        300ms to decay below any flat threshold, which would silently shorten
+        every detected hold and make short ones undetectable.  Excursion is
+        also just what "holding your breath" means.
 
-        The tolerance is derived from slope_rest_abs — the amount the signal
-        would drift over the window if it were moving at exactly that slope —
-        so the existing Detection knob keeps its meaning and its UI control.
+        *Position* is what makes a hold deliberate.  Requiring the breath to be
+        near the top or the bottom of its range rejects a hesitation halfway
+        up an inhale, which the earlier arrival-phase rule wrongly accepted.
+        The incoming value is already normalised per device upstream, so these
+        bands adapt to each performer without extra machinery.
         """
         cfg = self.cfg
         if not cfg.hold_enabled:
             return False
+
+        # No holds until a full breath cycle has been seen.  The bands are
+        # positions within the performer's range, and until they have breathed
+        # in and out once there is no range to speak of — upstream min/max
+        # normalisation reports exactly 1.0 while its buffer fills, because the
+        # newest sample *is* the running maximum.  That is perfectly still and
+        # sits in the peak band, so without this guard the first breath of
+        # every session latches a hold.
+        if self._last_cycle is None:
+            return False
+
         window_s = self._hold_window_s()
         if window_s <= 0.0 or len(self._amp_window) < 2:
             return False
@@ -178,8 +200,13 @@ class FeatureExtractor:
             return False
 
         amps = [a for _, a in self._amp_window]
-        tol = max(0.0, float(cfg.slope_rest_abs)) * window_s
-        return (max(amps) - min(amps)) <= tol
+        if (max(amps) - min(amps)) > max(0.0, float(cfg.hold_still_tol)):
+            return False
+
+        # Judge position on the whole window, not just the latest sample, so a
+        # single noisy spike out of the band cannot cancel a genuine hold.
+        mid = (max(amps) + min(amps)) / 2.0
+        return mid >= float(cfg.hold_peak_band) or mid <= float(cfg.hold_valley_band)
 
     def _next_phase(self, amp: float, d_amp: float, current: Phase) -> Phase:
         cfg = self.cfg
@@ -188,12 +215,9 @@ class FeatureExtractor:
         slope_enter_abs = max(0.0, float(cfg.slope_enter_abs))
 
         slope_enter = slope_enter_abs + h
-        slope_stay = max(0.0, slope_enter_abs - h)
 
         is_rising_enter = d_amp >= slope_enter
         is_falling_enter = d_amp <= -slope_enter
-        is_rising_stay = d_amp >= slope_stay
-        is_falling_stay = d_amp <= -slope_stay
 
         t_now = self._last_t
         held_flat = self._held_flat()
@@ -203,10 +227,9 @@ class FeatureExtractor:
             if (t_now - self._phase_enter_t) < min_phase_s:
                 return current
 
-        # Which hold a sustained flat resolves to is decided by the phase it
-        # arrives from, not by amplitude.  Amplitude is unreliable here — a
-        # shallow breather's "full" is a deep breather's "empty" — whereas the
-        # cycle order (inhale → hold → exhale → hold) always holds.
+        # One HOLD state, entered from either end of the breath.  _held_flat()
+        # already required the band, so reaching here means the pause is at the
+        # top or the bottom rather than mid-breath.
         if current == Phase.REST:
             if is_rising_enter:
                 return Phase.INHALE
@@ -218,33 +241,27 @@ class FeatureExtractor:
             if is_falling_enter:
                 return Phase.EXHALE
             if held_flat:
-                return Phase.HOLD_FULL
-            if is_rising_stay:
-                return Phase.INHALE
+                return Phase.HOLD
             return Phase.INHALE
-
-        if current == Phase.HOLD_FULL:
-            if is_falling_enter:
-                return Phase.EXHALE
-            if is_rising_enter:
-                return Phase.INHALE
-            return Phase.HOLD_FULL
 
         if current == Phase.EXHALE:
             if is_rising_enter:
                 return Phase.INHALE
             if held_flat:
-                return Phase.HOLD_EMPTY
-            if is_falling_stay:
-                return Phase.EXHALE
+                return Phase.HOLD
             return Phase.EXHALE
 
-        if current == Phase.HOLD_EMPTY:
-            if is_rising_enter:
-                return Phase.INHALE
-            if is_falling_enter:
-                return Phase.EXHALE
-            return Phase.HOLD_EMPTY
+        if current == Phase.HOLD:
+            # A latched hold is broken by displacement, not by slope.  See
+            # DetectionConfig.hold_exit_delta: rolling renormalisation makes a
+            # still breath drift, and that drift has enough slope to look like
+            # a new phase.  It does not have enough travel.
+            if self._hold_latch_amp is None:
+                self._hold_latch_amp = amp
+            moved = amp - self._hold_latch_amp
+            if abs(moved) >= max(0.0, float(cfg.hold_exit_delta)):
+                return Phase.INHALE if moved > 0 else Phase.EXHALE
+            return Phase.HOLD
 
         return Phase.REST
 

@@ -28,6 +28,10 @@ hysteresis = 0.019999999552965164
 min_phase_ms = 120
 hold_enabled = true
 min_hold_ms = 1000
+hold_peak_band = 0.8
+hold_valley_band = 0.2
+hold_still_tol = 0.05
+hold_exit_delta = 0.15
 
 [midi]
 out_port = "IAC Driver BreathMIDI"
@@ -74,15 +78,9 @@ peak_tol_value = 0.6000000238418579
 note = 64
 velocity = 110
 
-[triggers.hold_full_onset]
-enabled = false
-note = 67
-velocity = 100
-debounce_ms = 200
-
-[triggers.hold_empty_onset]
-enabled = false
-note = 60
+[triggers.hold_onset]
+enabled = true
+note = 0
 velocity = 100
 debounce_ms = 200
 

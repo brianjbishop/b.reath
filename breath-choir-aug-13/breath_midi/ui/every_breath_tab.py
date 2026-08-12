@@ -48,6 +48,9 @@ class EveryBreathTab:
 
     def __init__(self, hub: EveryBreathHub, parent_tag: int | str) -> None:
         self._hub = hub
+        # Same threshold the detector uses, so the lit vertex agrees with the
+        # phase rather than telling a slightly different story.
+        self._peak_band = float(hub._config.detection.hold_peak_band)
         self._parent = parent_tag
         # None = never built yet. Using None (not []) as the sentinel so that
         # the first update() call always triggers _rebuild_grid even when there
@@ -190,10 +193,7 @@ class EveryBreathTab:
         rhombus_prefix = f"eb_rh_{snap.uuid}"
         inote_tag = f"eb_inote_{snap.uuid}"
         enote_tag = f"eb_enote_{snap.uuid}"
-        hfnote_tag = f"eb_hfnote_{snap.uuid}"
-        henote_tag = f"eb_henote_{snap.uuid}"
-        hfen_tag = f"eb_hfen_{snap.uuid}"
-        heen_tag = f"eb_heen_{snap.uuid}"
+        hnote_tag = f"eb_hnote_{snap.uuid}"
         name_tag = f"eb_name_{snap.uuid}"
         mute_tag = f"eb_mute_{snap.uuid}"
         solo_tag = f"eb_solo_{snap.uuid}"
@@ -281,6 +281,8 @@ class EveryBreathTab:
                     phase=snap.phase,
                     color=snap.color,
                     active=snap.active,
+                    amp=snap.raw_amp,
+                    peak_band=self._peak_band,
                 )
                 dpg.add_spacer(width=4)
                 with dpg.group():
@@ -310,43 +312,21 @@ class EveryBreathTab:
                             callback=lambda s, a, u: self._on_exhale_note_edit(s, a, u),
                             user_data=uuid,
                         )
-                    # Holds are opt-in per device — the checkbox gates the note.
+                    # 0 means silent — no checkbox needed, the number says it.
                     with dpg.group(horizontal=True):
-                        dpg.add_checkbox(
-                            tag=hfen_tag,
-                            default_value=snap.hold_full_enabled,
-                            callback=lambda s, a, u: self._on_hold_full_enabled(s, a, u),
-                            user_data=uuid,
-                        )
+                        dpg.add_text("Hold", color=(200, 200, 200))
                         dpg.add_input_int(
-                            tag=hfnote_tag,
-                            default_value=snap.hold_full_note,
+                            tag=hnote_tag,
+                            default_value=snap.hold_note,
                             width=52,
                             min_value=0,
                             max_value=127,
                             step=0,
                             on_enter=True,
-                            callback=lambda s, a, u: self._on_hold_full_note_edit(s, a, u),
+                            callback=lambda s, a, u: self._on_hold_note_edit(s, a, u),
                             user_data=uuid,
                         )
-                        dpg.add_spacer(width=6)
-                        dpg.add_checkbox(
-                            tag=heen_tag,
-                            default_value=snap.hold_empty_enabled,
-                            callback=lambda s, a, u: self._on_hold_empty_enabled(s, a, u),
-                            user_data=uuid,
-                        )
-                        dpg.add_input_int(
-                            tag=henote_tag,
-                            default_value=snap.hold_empty_note,
-                            width=52,
-                            min_value=0,
-                            max_value=127,
-                            step=0,
-                            on_enter=True,
-                            callback=lambda s, a, u: self._on_hold_empty_note_edit(s, a, u),
-                            user_data=uuid,
-                        )
+                        dpg.add_text("0 = silent", color=_PLACEHOLDER_COLOR)
 
             # ── Waveform plot ─────────────────────────────────────────────────
             # Line color is set to snap.color at build time so waveform,
@@ -396,10 +376,7 @@ class EveryBreathTab:
             rhombus_prefix = f"eb_rh_{snap.uuid}"
             inote_tag = f"eb_inote_{snap.uuid}"
             enote_tag = f"eb_enote_{snap.uuid}"
-            hfnote_tag = f"eb_hfnote_{snap.uuid}"
-            henote_tag = f"eb_henote_{snap.uuid}"
-            hfen_tag = f"eb_hfen_{snap.uuid}"
-            heen_tag = f"eb_heen_{snap.uuid}"
+            hnote_tag = f"eb_hnote_{snap.uuid}"
             mute_tag = f"eb_mute_{snap.uuid}"
             solo_tag = f"eb_solo_{snap.uuid}"
             name_tag = f"eb_name_{snap.uuid}"
@@ -414,6 +391,8 @@ class EveryBreathTab:
                 phase=snap.phase,
                 color=snap.color,
                 active=snap.active,
+                amp=snap.raw_amp,
+                peak_band=self._peak_band,
             )
 
             device_theme = self._device_theme_tags.get(snap.uuid)
@@ -435,21 +414,9 @@ class EveryBreathTab:
                 if int(dpg.get_value(enote_tag)) != snap.exhale_note:
                     dpg.set_value(enote_tag, snap.exhale_note)
 
-            if dpg.does_item_exist(hfnote_tag):
-                if int(dpg.get_value(hfnote_tag)) != snap.hold_full_note:
-                    dpg.set_value(hfnote_tag, snap.hold_full_note)
-
-            if dpg.does_item_exist(henote_tag):
-                if int(dpg.get_value(henote_tag)) != snap.hold_empty_note:
-                    dpg.set_value(henote_tag, snap.hold_empty_note)
-
-            if dpg.does_item_exist(hfen_tag):
-                if bool(dpg.get_value(hfen_tag)) != snap.hold_full_enabled:
-                    dpg.set_value(hfen_tag, snap.hold_full_enabled)
-
-            if dpg.does_item_exist(heen_tag):
-                if bool(dpg.get_value(heen_tag)) != snap.hold_empty_enabled:
-                    dpg.set_value(heen_tag, snap.hold_empty_enabled)
+            if dpg.does_item_exist(hnote_tag):
+                if int(dpg.get_value(hnote_tag)) != snap.hold_note:
+                    dpg.set_value(hnote_tag, snap.hold_note)
 
     # ── interaction callbacks ─────────────────────────────────────────────────
 
@@ -481,15 +448,6 @@ class EveryBreathTab:
         if entry is not None:
             self._hub.set_device_notes(uuid, entry.inhale_note, int(app_data))
 
-    def _on_hold_full_note_edit(self, sender: int | str, app_data: int, user_data: str) -> None:
-        self._hub.set_hold_full_number(str(user_data), int(app_data))
-
-    def _on_hold_empty_note_edit(self, sender: int | str, app_data: int, user_data: str) -> None:
-        self._hub.set_hold_empty_number(str(user_data), int(app_data))
-
-    def _on_hold_full_enabled(self, sender: int | str, app_data: bool, user_data: str) -> None:
-        self._hub.set_hold_full_enabled(str(user_data), bool(app_data))
-
-    def _on_hold_empty_enabled(self, sender: int | str, app_data: bool, user_data: str) -> None:
-        self._hub.set_hold_empty_enabled(str(user_data), bool(app_data))
+    def _on_hold_note_edit(self, sender: int | str, app_data: int, user_data: str) -> None:
+        self._hub.set_hold_number(str(user_data), int(app_data))
 

@@ -15,18 +15,14 @@ import pytest
 from breath_midi.every_breath.hub import DeviceUISnapshot
 from breath_midi.types import Phase
 from breath_midi.ui.widgets.phase_rhombus import (
+    HOLD_BOTTOM,
+    HOLD_TOP,
     build_phase_rhombus,
     refresh_phase_rhombus,
     vertex_tag,
 )
 
-ALL_PHASES = [
-    Phase.REST,
-    Phase.INHALE,
-    Phase.HOLD_FULL,
-    Phase.EXHALE,
-    Phase.HOLD_EMPTY,
-]
+ALL_PHASES = [Phase.REST, Phase.INHALE, Phase.HOLD, Phase.EXHALE]
 
 
 @pytest.fixture
@@ -56,10 +52,7 @@ def snapshot(uuid: str = "dev-1", phase: Phase = Phase.REST, **kw) -> DeviceUISn
         cons_n=0,
         cons_tolerance=0.3,
         consistent_gate_open=True,
-        hold_full_note=66,
-        hold_empty_note=70,
-        hold_full_enabled=False,
-        hold_empty_enabled=False,
+        hold_note=70,
     )
     defaults.update(kw)
     return DeviceUISnapshot(**defaults)
@@ -68,28 +61,35 @@ def snapshot(uuid: str = "dev-1", phase: Phase = Phase.REST, **kw) -> DeviceUISn
 def test_rhombus_creates_all_four_vertices(dpg_context):
     with dpg.group(parent=dpg_context):
         build_phase_rhombus("t1", Phase.INHALE, (200, 100, 50), active=True)
-    for p in (Phase.INHALE, Phase.HOLD_FULL, Phase.EXHALE, Phase.HOLD_EMPTY):
-        assert dpg.does_item_exist(vertex_tag("t1", p)), f"missing vertex for {p}"
+    for v in (Phase.INHALE, HOLD_TOP, Phase.EXHALE, HOLD_BOTTOM):
+        assert dpg.does_item_exist(vertex_tag("t1", v)), f"missing vertex for {v}"
     # REST is not on the diamond — it is the cold-start state.
     assert not dpg.does_item_exist(vertex_tag("t1", Phase.REST))
 
 
-@pytest.mark.parametrize("phase", ALL_PHASES)
-def test_only_active_phase_vertex_is_lit(dpg_context, phase: Phase):
+@pytest.mark.parametrize(
+    "phase,amp,expected",
+    [
+        (Phase.REST, 0.5, None),
+        (Phase.INHALE, 0.5, Phase.INHALE.value),
+        (Phase.EXHALE, 0.5, Phase.EXHALE.value),
+        (Phase.HOLD, 0.95, HOLD_TOP),
+        (Phase.HOLD, 0.05, HOLD_BOTTOM),
+    ],
+)
+def test_hold_lights_top_or_bottom_by_amplitude(dpg_context, phase, amp, expected):
+    """One HOLD state, but the vertex shows which end of the breath it is at."""
     color = (200, 100, 50)
     with dpg.group(parent=dpg_context):
         build_phase_rhombus("t2", Phase.REST, color, active=True)
-    refresh_phase_rhombus("t2", phase, color, active=True)
+    refresh_phase_rhombus("t2", phase, color, active=True, amp=amp, peak_band=0.8)
 
     lit = [
-        p
-        for p in (Phase.INHALE, Phase.HOLD_FULL, Phase.EXHALE, Phase.HOLD_EMPTY)
-        if _is_device_color(vertex_tag("t2", p), color)
+        v
+        for v in (Phase.INHALE.value, HOLD_TOP, Phase.EXHALE.value, HOLD_BOTTOM)
+        if _is_device_color(vertex_tag("t2", v), color)
     ]
-    if phase == Phase.REST:
-        assert lit == [], "REST must leave every vertex dim"
-    else:
-        assert lit == [phase], f"expected only {phase} lit, got {lit}"
+    assert lit == ([] if expected is None else [expected])
 
 
 def _is_device_color(tag: str, color: tuple[int, int, int]) -> bool:
@@ -103,8 +103,8 @@ def test_paused_device_dims_every_vertex(dpg_context):
     color = (200, 100, 50)
     with dpg.group(parent=dpg_context):
         build_phase_rhombus("t3", Phase.INHALE, color, active=False)
-    for p in (Phase.INHALE, Phase.HOLD_FULL, Phase.EXHALE, Phase.HOLD_EMPTY):
-        assert not _is_device_color(vertex_tag("t3", p), color)
+    for v in (Phase.INHALE.value, HOLD_TOP, Phase.EXHALE.value, HOLD_BOTTOM):
+        assert not _is_device_color(vertex_tag("t3", v), color)
 
 
 def test_refresh_is_safe_when_vertices_absent(dpg_context):
@@ -116,59 +116,53 @@ def test_every_breath_card_builds_with_holds(dpg_context):
     """The full device card, including the four note inputs and hold toggles."""
     from breath_midi.ui.every_breath_tab import EveryBreathTab
 
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
     class FakeRegistry:
         def get(self, uuid):
             return None
 
     class FakeHub:
         registry = FakeRegistry()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
 
     tab = EveryBreathTab(FakeHub(), dpg_context)  # type: ignore[arg-type]
-    snap = snapshot(phase=Phase.HOLD_FULL, hold_full_enabled=True)
+    snap = snapshot(phase=Phase.HOLD)
     tab._build_card(snap, parent=dpg_context, prev_uuid=None, next_uuid=None)
 
     uuid = snap.uuid
-    for tag in (
-        f"eb_inote_{uuid}",
-        f"eb_enote_{uuid}",
-        f"eb_hfnote_{uuid}",
-        f"eb_henote_{uuid}",
-        f"eb_hfen_{uuid}",
-        f"eb_heen_{uuid}",
-    ):
+    for tag in (f"eb_inote_{uuid}", f"eb_enote_{uuid}", f"eb_hnote_{uuid}"):
         assert dpg.does_item_exist(tag), f"missing card control {tag}"
-
-    assert dpg.get_value(f"eb_hfnote_{uuid}") == 66
-    assert dpg.get_value(f"eb_henote_{uuid}") == 70
-    assert dpg.get_value(f"eb_hfen_{uuid}") is True
-    assert dpg.get_value(f"eb_heen_{uuid}") is False
-    assert dpg.does_item_exist(vertex_tag(f"eb_rh_{uuid}", Phase.HOLD_FULL))
+    assert dpg.get_value(f"eb_hnote_{uuid}") == 70
+    assert dpg.does_item_exist(vertex_tag(f"eb_rh_{uuid}", HOLD_TOP))
 
 
 def test_group_breath_strip_builds_with_holds(dpg_context):
     """The Group Breath strip is the other lazily-built device view."""
     from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
 
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
     class FakeHub:
         registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
 
     # _build_strip parents into this row by tag.
     with dpg.group(parent=dpg_context, tag="gb_strip_row"):
         pass
 
     panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
-    snap = snapshot(uuid="dev-gb", phase=Phase.HOLD_EMPTY, hold_empty_enabled=True)
+    snap = snapshot(uuid="dev-gb", phase=Phase.HOLD)
     panel._build_strip(snap)
 
     uuid = snap.uuid
-    for tag in (
-        f"gb_strip_hf_num_{uuid}",
-        f"gb_strip_he_num_{uuid}",
-        f"gb_strip_hf_en_{uuid}",
-        f"gb_strip_he_en_{uuid}",
-    ):
+    for tag in (f"gb_strip_h_num_{uuid}", f"gb_strip_inh_num_{uuid}"):
         assert dpg.does_item_exist(tag), f"missing strip control {tag}"
-    assert dpg.does_item_exist(vertex_tag(f"gb_strip_rh_{uuid}", Phase.HOLD_EMPTY))
+    assert dpg.does_item_exist(vertex_tag(f"gb_strip_rh_{uuid}", HOLD_BOTTOM))
 
     for phase in ALL_PHASES:
         panel._refresh_strips([snapshot(uuid=uuid, phase=phase)])
@@ -178,8 +172,13 @@ def test_card_refresh_steps_through_phases(dpg_context):
     """Per-frame refresh must not raise for any phase, including the holds."""
     from breath_midi.ui.every_breath_tab import EveryBreathTab
 
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
     class FakeHub:
         registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
 
     tab = EveryBreathTab(FakeHub(), dpg_context)  # type: ignore[arg-type]
     snap = snapshot()

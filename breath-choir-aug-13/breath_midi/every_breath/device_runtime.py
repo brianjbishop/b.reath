@@ -12,30 +12,29 @@ from breath_midi.triggers.engine import TriggerEngine
 from breath_midi.triggers.v1.consistent_breaths import ConsistentBreathsTrigger
 from breath_midi.triggers.v1.exhale_cc_onset import ExhaleCcOnsetTrigger
 from breath_midi.triggers.v1.exhale_onset import ExhaleOnsetTrigger
-from breath_midi.triggers.v1.hold_cc_onset import (
-    HoldEmptyCcOnsetTrigger,
-    HoldFullCcOnsetTrigger,
-)
-from breath_midi.triggers.v1.hold_onset import (
-    HoldEmptyOnsetTrigger,
-    HoldFullOnsetTrigger,
-)
+from breath_midi.triggers.v1.hold_cc_onset import HoldCcOnsetTrigger
 from breath_midi.triggers.v1.inhale_cc_onset import InhaleCcOnsetTrigger
 from breath_midi.triggers.v1.inhale_onset import InhaleOnsetTrigger
+from breath_midi.midi.voice import SILENT, BreathVoice
 from breath_midi.types import BreathSample, Phase, TriggerKind
 
 
 class DeviceRuntime:
     """
-    Independent signal → trigger → MIDI pipeline for one OSC device.
+    Independent signal → phase → MIDI pipeline for one OSC device.
 
-    Runs inhale/exhale onset triggers (note or CC mode) gated by a
-    ConsistentBreathsTrigger.  When N=0 the gate is bypassed and MIDI
-    always fires.  When N>0 the gate opens after N consistent breaths
-    and closes when consistency is lost.
+    In note mode the phase drives a BreathVoice: inhale, hold and exhale each
+    behave like a key held down, and exactly one is down at a time.  In CC mode
+    the phase fires one-shot CC messages through the trigger engine instead,
+    since CC has no on/off pairing to keep exclusive.
 
-    Sustain CC is intentionally excluded — Every Breath tracks onset
-    events per performer for choir-level triggering, not continuous CC.
+    Either way output is gated by ConsistentBreathsTrigger.  When N=0 the gate
+    is bypassed and MIDI always flows.  When N>0 the gate opens after N
+    consistent breaths and closes when consistency is lost — and closing it
+    releases the sounding note rather than stranding it.
+
+    Sustain CC is intentionally excluded — Every Breath tracks phase changes
+    per performer for choir-level triggering, not continuous CC.
     """
 
     def __init__(self, config: ConfigModel, shared_sink: MidiSink) -> None:
@@ -45,8 +44,7 @@ class DeviceRuntime:
         self._features = FeatureExtractor(config.detection)
         self._inh_cc = InhaleCcOnsetTrigger()
         self._exh_cc = ExhaleCcOnsetTrigger()
-        self._hold_full_cc = HoldFullCcOnsetTrigger()
-        self._hold_empty_cc = HoldEmptyCcOnsetTrigger()
+        self._hold_cc = HoldCcOnsetTrigger()
         self._cons = ConsistentBreathsTrigger()
         self._cc_mode: bool = False
         self._gate_open: bool = True   # starts open; closes only after streak is lost
@@ -73,6 +71,16 @@ class DeviceRuntime:
         )
         self._router = MidiRouter(self._config, midi=shared_sink)
         self._phase: Phase = Phase.REST
+        self._voice = BreathVoice(
+            shared_sink,
+            channel=int(config.midi.channel),
+            velocity=int(config.midi.default_velocity),
+        )
+        self._voice.set_notes(
+            inhale=int(config.triggers.inhale_onset.note),
+            hold=int(config.triggers.hold_onset.note),
+            exhale=int(config.triggers.exhale_onset.note),
+        )
 
     def on_sample(self, sample: BreathSample, muted: bool = False) -> Phase:
         ps = self._signal.process(sample)
@@ -85,13 +93,25 @@ class DeviceRuntime:
                     self._gate_open = (e.kind == TriggerKind.NOTE_ON)
             # N=0 bypasses gating entirely; otherwise gate must be open
             gate_pass = self._cons_n == 0 or self._gate_open
-            if not muted and gate_pass:
-                for e in events:
-                    if e.name != ConsistentBreathsTrigger.id:
-                        try:
-                            self._router.handle(e)
-                        except Exception:
-                            pass
+            allowed = (not muted) and gate_pass
+
+            if self._cc_mode:
+                if allowed:
+                    for e in events:
+                        if e.name != ConsistentBreathsTrigger.id:
+                            try:
+                                self._router.handle(e)
+                            except Exception:
+                                pass
+            else:
+                # The voice is told the phase every frame, not only on change:
+                # it is idempotent, and this way a mute or a closing gate
+                # releases the note on the very next sample instead of waiting
+                # for the performer to change phase.
+                if allowed:
+                    self._voice.on_phase(frame.phase)
+                else:
+                    self._voice.release()
         self._phase = frame.phase
         return frame.phase
 
@@ -105,20 +125,16 @@ class DeviceRuntime:
     # ── private helpers ───────────────────────────────────────────────────────
 
     def _current_strategies(self) -> list:
-        if self._cc_mode:
-            onset = [self._inh_cc, self._exh_cc, self._hold_full_cc, self._hold_empty_cc]
-        else:
-            onset = [
-                InhaleOnsetTrigger(),
-                ExhaleOnsetTrigger(),
-                HoldFullOnsetTrigger(),
-                HoldEmptyOnsetTrigger(),
-            ]
+        # Note mode is driven by BreathVoice, not by onset strategies — the
+        # gate needs a single owner of the note state.  Only CC mode still
+        # goes through the trigger engine, because CC has no on/off pairing.
+        onset = [self._inh_cc, self._exh_cc, self._hold_cc] if self._cc_mode else []
         return onset + [self._cons]
 
     # ── public controls ───────────────────────────────────────────────────────
 
-    def set_notes(self, inhale_note: int, exhale_note: int) -> None:
+    def set_notes(self, inhale_note: int, exhale_note: int, hold_note: int = SILENT) -> None:
+        """Assign this device's three phase notes.  0 means silent."""
         t = self._config.triggers
         new_cfg = replace(
             self._config,
@@ -126,48 +142,25 @@ class DeviceRuntime:
                 t,
                 inhale_onset=replace(t.inhale_onset, note=inhale_note),
                 exhale_onset=replace(t.exhale_onset, note=exhale_note),
+                hold_onset=replace(t.hold_onset, note=hold_note),
             ),
         )
         with self._lock:
             self._config = new_cfg
             self._triggers = TriggerEngine(new_cfg, strategies=self._current_strategies())
             self._router = MidiRouter(new_cfg, midi=self._shared_sink)
-
-    def set_hold_notes(self, hold_full_note: int, hold_empty_note: int) -> None:
-        t = self._config.triggers
-        new_cfg = replace(
-            self._config,
-            triggers=replace(
-                t,
-                hold_full_onset=replace(t.hold_full_onset, note=hold_full_note),
-                hold_empty_onset=replace(t.hold_empty_onset, note=hold_empty_note),
-            ),
-        )
-        with self._lock:
-            self._config = new_cfg
-            self._triggers = TriggerEngine(new_cfg, strategies=self._current_strategies())
-            self._router = MidiRouter(new_cfg, midi=self._shared_sink)
-
-    def set_hold_enabled(self, hold_full: bool, hold_empty: bool) -> None:
-        """Enable or disable each hold's MIDI output for this device."""
-        t = self._config.triggers
-        new_cfg = replace(
-            self._config,
-            triggers=replace(
-                t,
-                hold_full_onset=replace(t.hold_full_onset, enabled=hold_full),
-                hold_empty_onset=replace(t.hold_empty_onset, enabled=hold_empty),
-            ),
-        )
-        with self._lock:
-            self._config = new_cfg
-            self._triggers = TriggerEngine(new_cfg, strategies=self._current_strategies())
-            self._router = MidiRouter(new_cfg, midi=self._shared_sink)
+            # Retune without dropping the sounding note: if the note for the
+            # current phase changed, the next frame moves to it cleanly.
+            self._voice.set_notes(
+                inhale=inhale_note, hold=hold_note, exhale=exhale_note
+            )
 
     def set_output_mode(self, cc_mode: bool) -> None:
         """Switch between note-onset mode (default) and CC-onset mode."""
         with self._lock:
             self._cc_mode = cc_mode
+            # Leaving note mode must not strand the sounding note.
+            self._voice.release()
             self._triggers = TriggerEngine(self._config, strategies=self._current_strategies())
 
     def set_inhale_cc(self, cc_number: int) -> None:
@@ -185,18 +178,26 @@ class DeviceRuntime:
         with self._lock:
             self._inh_cc.set_cc(self._inh_cc._cc_number, cc_value)
             self._exh_cc.set_cc(self._exh_cc._cc_number, cc_value)
-            self._hold_full_cc.set_cc(self._hold_full_cc._cc_number, cc_value)
-            self._hold_empty_cc.set_cc(self._hold_empty_cc._cc_number, cc_value)
+            self._hold_cc.set_cc(self._hold_cc._cc_number, cc_value)
 
-    def set_hold_full_cc(self, cc_number: int) -> None:
-        """Update the hold-full CC trigger's CC number (used in CC mode)."""
+    def set_hold_cc(self, cc_number: int) -> None:
+        """Update the hold CC trigger's CC number (used in CC mode)."""
         with self._lock:
-            self._hold_full_cc.set_cc(cc_number, self._hold_full_cc._cc_value)
+            self._hold_cc.set_cc(cc_number, self._hold_cc._cc_value)
 
-    def set_hold_empty_cc(self, cc_number: int) -> None:
-        """Update the hold-empty CC trigger's CC number (used in CC mode)."""
+    def release(self) -> None:
+        """
+        Release the sounding note.  Called on device timeout, stop, tab switch
+        and app exit — anywhere a phase ends without another beginning.
+        """
         with self._lock:
-            self._hold_empty_cc.set_cc(cc_number, self._hold_empty_cc._cc_value)
+            self._voice.release()
+
+    def set_midi_channel(self, channel: int) -> None:
+        """Move this device to another channel, releasing on the old one first."""
+        with self._lock:
+            self._voice.release()
+            self._voice.set_channel(channel)
 
     def set_cons_n(self, n: int) -> None:
         """Set consistent breaths streak target.  n=0 disables gating."""
@@ -232,15 +233,12 @@ def make_device_config(
     base: ConfigModel,
     inhale_note: int,
     exhale_note: int,
-    hold_full_note: int = 0,
-    hold_empty_note: int = 0,
-    hold_full_enabled: bool = False,
-    hold_empty_enabled: bool = False,
+    hold_note: int = SILENT,
 ) -> ConfigModel:
     """
     Build a per-device ConfigModel from base config with device-specific notes.
-    Sustain CC and ConsistentBreaths triggers are disabled — see DeviceRuntime docstring.
-    Holds are per-device and off unless explicitly enabled.
+    Sustain CC and ConsistentBreaths triggers are disabled — see DeviceRuntime.
+    hold_note defaults to 0, which means the hold is silent.
     """
     t = base.triggers
     return replace(
@@ -249,12 +247,7 @@ def make_device_config(
             t,
             inhale_onset=replace(t.inhale_onset, note=inhale_note, enabled=True),
             exhale_onset=replace(t.exhale_onset, note=exhale_note, enabled=True),
-            hold_full_onset=replace(
-                t.hold_full_onset, note=hold_full_note, enabled=hold_full_enabled
-            ),
-            hold_empty_onset=replace(
-                t.hold_empty_onset, note=hold_empty_note, enabled=hold_empty_enabled
-            ),
+            hold_onset=replace(t.hold_onset, note=hold_note, enabled=True),
             inhale_sustain=replace(t.inhale_sustain, enabled=False),
             exhale_sustain=replace(t.exhale_sustain, enabled=False),
             consistent_breaths=replace(t.consistent_breaths, enabled=False),

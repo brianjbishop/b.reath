@@ -24,10 +24,15 @@ class Phase(str, Enum):
     """
     Breath phases.
 
-    The performance cycle is four states — INHALE, HOLD_FULL, EXHALE,
-    HOLD_EMPTY — and the FSM walks them in that order.  Which hold you land
-    in is decided by the phase you arrived from, not by amplitude, so the
-    cycle stays predictable when a performer breathes shallowly.
+    Three states drive the performance: INHALE, HOLD, EXHALE.  The cycle
+    visits HOLD twice — once at the top of a breath and once at the bottom —
+    but it is the *same* state and fires the same note.  Where in the range a
+    hold happened is available from the amplitude for display purposes; it is
+    not a separate phase.
+
+    A hold requires the breath to be inside the peak band or the valley band
+    and to stay still there.  A pause halfway up an inhale is a hesitation,
+    not a hold, and leaves the phase unchanged.
 
     REST is *not* part of the cycle.  It is the cold-start state before the
     first breath is seen; once breathing begins the FSM never returns to it.
@@ -37,9 +42,8 @@ class Phase(str, Enum):
 
     REST = "rest"
     INHALE = "inhale"
-    HOLD_FULL = "hold_full"
+    HOLD = "hold"
     EXHALE = "exhale"
-    HOLD_EMPTY = "hold_empty"
 
 
 @dataclass(frozen=True)
