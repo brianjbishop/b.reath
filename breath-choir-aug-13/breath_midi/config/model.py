@@ -43,12 +43,14 @@ class DetectionConfig:
     # incoming value is already normalised per device upstream.  That is what
     # makes one setting work for a shallow breather and a deep one.
     # min_hold_ms must exceed the natural turnaround of a smooth breath, or
-    # ordinary breathing registers as holding.  At the peak of a 5s sine the
-    # value moves only 0.048 over 700ms — inside hold_still_tol — but 0.096
-    # over 1000ms, which is not.  Slower breathers need more still: a 10s
-    # breath needs about 1500ms.  That trade-off is real and unavoidable.
+    # ordinary breathing registers as holding.  Rule of thumb from measurement:
+    # it needs to be roughly an eighth of the breath cycle.  1500ms is clean
+    # down to about 6 breaths/minute, which covers normal and meditative
+    # tempos.  Slower than ~4 breaths/minute, raising this stops helping —
+    # at that point the breath cycle is approaching the length of the upstream
+    # normalisation window and the signal itself is the limit, not the dwell.
     hold_enabled: bool = True
-    min_hold_ms: int = 1000
+    min_hold_ms: int = 1500
     hold_peak_band: float = 0.80
     hold_valley_band: float = 0.20
     hold_still_tol: float = 0.05

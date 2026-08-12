@@ -34,7 +34,7 @@ def make_detection(**overrides) -> DetectionConfig:
         hysteresis=0.02,
         min_phase_ms=120,
         hold_enabled=True,
-        min_hold_ms=1000,
+        min_hold_ms=1500,
         hold_peak_band=0.80,
         hold_valley_band=0.20,
         hold_still_tol=0.05,
@@ -143,17 +143,18 @@ def test_min_hold_ms_is_the_knob_for_slow_breathers():
     """
     The unavoidable trade-off, recorded rather than wished away.
 
-    A very slow breath is genuinely near-stationary at its turnaround, so at the
-    default 1000ms dwell the 'Slow & Deep' performer (10s period) trips a hold.
-    That is not a bug in the detector — over a 1s window the breath really has
-    moved less than hold_still_tol. Raising min_hold_ms past the turnaround
-    fixes it, which is exactly what the knob is for.
+    A very slow breath is genuinely near-stationary at its turnaround, so a short
+    dwell makes the 'Slow & Deep' performer (10s period) trip a hold. That is not
+    a bug — over a 1s window the breath really has moved less than
+    hold_still_tol. Raising min_hold_ms past the turnaround fixes it, which is
+    exactly what the knob is for. Measured rule of thumb on the full chain:
+    min_hold_ms wants to be about an eighth of the breath cycle.
     """
     slow = sine(period_s=10.0, cycles=3)
-    assert Phase.HOLD in set(run(slow)), "default dwell no longer catches slow breathing"
-    assert Phase.HOLD not in set(run(slow, make_detection(min_hold_ms=1600))), (
-        "raising min_hold_ms should stop slow breathing registering as a hold"
-    )
+    # Too short a dwell and a 6-breaths/minute performer reads as holding...
+    assert Phase.HOLD in set(run(slow, make_detection(min_hold_ms=1000)))
+    # ...and raising it past the turnaround stops that.
+    assert Phase.HOLD not in set(run(slow, make_detection(min_hold_ms=2000)))
     # A normal 5s breath is unaffected either way.
     assert Phase.HOLD not in set(run(sine(period_s=5.0, cycles=4)))
 

@@ -108,7 +108,7 @@ class ConfigStore:
             hysteresis=_req_float(detection_raw, "hysteresis"),
             min_phase_ms=_req_int(detection_raw, "min_phase_ms"),
             hold_enabled=bool(detection_raw.get("hold_enabled", True)),
-            min_hold_ms=int(detection_raw.get("min_hold_ms", 1000)),
+            min_hold_ms=int(detection_raw.get("min_hold_ms", 1500)),
             hold_peak_band=float(detection_raw.get("hold_peak_band", 0.80)),
             hold_valley_band=float(detection_raw.get("hold_valley_band", 0.20)),
             hold_still_tol=float(detection_raw.get("hold_still_tol", 0.05)),
