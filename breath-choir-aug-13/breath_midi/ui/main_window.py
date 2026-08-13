@@ -7,6 +7,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import replace
+from pathlib import Path
 
 from bleak import BleakClient, BleakScanner  # noqa: F401
 
@@ -37,6 +38,10 @@ from breath_midi.ui.window_placement import (
     viewport_restored_position_is_valid,
 )
 
+APP_TITLE = "b.reath"
+# Shipped alongside the package: breath-choir-aug-13/assets/icon.png
+_ICON_PATH = Path(__file__).resolve().parents[2] / "assets" / "icon.png"
+
 WINDOW_SECONDS = 15.0
 
 # Fixed side column widths; center column width is set explicitly each layout pass.
@@ -47,6 +52,28 @@ _RIGHT_PANEL_W = 380
 _LAYOUT_H_GAP = 32
 _MIN_SIDE_PANEL_W = 180
 _MIN_CENTER_PANEL_W = 280
+
+
+def _set_dock_icon() -> None:
+    """
+    Set the macOS dock icon at runtime.
+
+    Dear PyGui's set_viewport_*_icon is a no-op on macOS, where the icon
+    normally comes from an .app bundle — and this runs as a plain script. AppKit
+    lets a running process set it directly. pyobjc arrives with bleak, so it is
+    already present, but this stays guarded: no icon is a cosmetic loss and must
+    never stop the app starting.
+    """
+    try:
+        from AppKit import NSApplication, NSImage  # noqa: PLC0415
+
+        if not _ICON_PATH.exists():
+            return
+        image = NSImage.alloc().initByReferencingFile_(str(_ICON_PATH))
+        if image is not None:
+            NSApplication.sharedApplication().setApplicationIconImage_(image)
+    except Exception:
+        pass
 
 
 def run_ui(
@@ -100,7 +127,7 @@ class BreathMidiDpgUI:
                 self.runtime.config = replace(self.runtime.config, ui=new_ui)
 
         dpg.create_viewport(
-            title="Breath → MIDI Controller",
+            title=APP_TITLE,
             width=ww,
             height=wh,
         )
@@ -112,6 +139,8 @@ class BreathMidiDpgUI:
         self._build()
         dpg.set_viewport_resize_callback(lambda *_: self._on_viewport_resize())
         dpg.show_viewport()
+        # After show_viewport: NSApplication exists by this point.
+        _set_dock_icon()
         self._layout_main_to_viewport()
         self.load_into_ui(self.runtime.config)
         # All tabs start inactive — processes only start when the user clicks
@@ -174,7 +203,7 @@ class BreathMidiDpgUI:
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding,  0, 0)
 
         with dpg.window(
-            label="Breath → MIDI Controller",
+            label=APP_TITLE,
             tag="win_main",
             no_title_bar=True,
             no_resize=False,
