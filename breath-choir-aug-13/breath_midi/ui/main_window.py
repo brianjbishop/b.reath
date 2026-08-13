@@ -32,6 +32,7 @@ from breath_midi.every_breath.hub import EveryBreathHub
 from breath_midi.ui.every_breath_tab import EveryBreathTab
 from breath_midi.ui.group_breath_tab import GroupBreathTab
 from breath_midi.ui.qr import show_qr_popup
+from breath_midi.ui.widgets.knob import add_knob, refresh_knobs
 from breath_midi.ui.tab_activity_manager import TabActivityManager
 from breath_midi.ui.window_placement import (
     centered_position_on_primary,
@@ -594,52 +595,36 @@ class BreathMidiDpgUI:
             "Rule of thumb: about 1/8 of the breath cycle.\nToo low and slow breathing reads as holding.",
             color=(150, 150, 150),
         )
-        dpg.add_text("Peak band (hold above)")
-        dpg.add_input_float(
-            tag="ui_hold_peak_band",
-            width=140,
-            default_value=0.80,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.2f",
-            callback=self._cb,
-        )
-        dpg.add_text("Valley band (hold below)")
-        dpg.add_input_float(
-            tag="ui_hold_valley_band",
-            width=140,
-            default_value=0.20,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.2f",
-            callback=self._cb,
-        )
+        dpg.add_spacer(height=6)
+        dpg.add_text("Hold shape", color=(200, 200, 160))
+        # Knobs rather than number fields: these four get dialled in by ear
+        # against a live performer, where dragging beats typing.
+        with dpg.group(horizontal=True):
+            add_knob(
+                "ui_hold_peak_band", "Peak",
+                default=0.80, min_value=0.0, max_value=1.0, step=0.01,
+                callback=self._cb,
+            )
+            dpg.add_spacer(width=10)
+            add_knob(
+                "ui_hold_valley_band", "Valley",
+                default=0.20, min_value=0.0, max_value=1.0, step=0.01,
+                callback=self._cb,
+            )
+            dpg.add_spacer(width=10)
+            add_knob(
+                "ui_hold_still_tol", "Still tol",
+                default=0.05, min_value=0.0, max_value=0.50, step=0.005,
+                fmt="%.3f", callback=self._cb,
+            )
+            dpg.add_spacer(width=10)
+            add_knob(
+                "ui_hold_exit_delta", "Exit Δ",
+                default=0.15, min_value=0.0, max_value=1.0, step=0.01,
+                fmt="%.3f", callback=self._cb,
+            )
         dpg.add_text(
-            "Widen these (lower peak / raise valley) if\nholds are being missed.",
-            color=(150, 150, 150),
-        )
-        dpg.add_text("Hold stillness tol")
-        dpg.add_input_float(
-            tag="ui_hold_still_tol",
-            width=140,
-            default_value=0.05,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Hold exit delta")
-        dpg.add_input_float(
-            tag="ui_hold_exit_delta",
-            width=140,
-            default_value=0.15,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text(
-            "How far the breath must move to end a hold.",
+            "Drag up/down or scroll. Widen Peak/Valley if holds\nare missed; raise Still tol if the signal is noisy.",
             color=(150, 150, 150),
         )
 
@@ -1245,6 +1230,9 @@ class BreathMidiDpgUI:
             dpg.set_value("ui_hold_valley_band", float(cfg.detection.hold_valley_band))
             dpg.set_value("ui_hold_still_tol", float(cfg.detection.hold_still_tol))
             dpg.set_value("ui_hold_exit_delta", float(cfg.detection.hold_exit_delta))
+            # Knobs are drawn from their bound value; set_value alone cannot
+            # repaint them.
+            refresh_knobs()
 
             ports = MidoMidiSink.list_outputs()
             if not ports:
