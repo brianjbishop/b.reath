@@ -224,8 +224,8 @@ def test_group_breath_has_collapsible_detection_and_guide(dpg_context):
     assert dpg.does_item_exist("gb_guide_header"), "Breath Guide section missing"
 
     for tag in (
-        "ui_hold_enabled", "ui_min_hold_ms", "ui_hold_peak_band",
-        "ui_hold_valley_band", "ui_hold_still_tol", "ui_hold_exit_delta",
+        "ui_hold_enabled", "ui_phase_stickiness", "ui_hold_peak_band",
+        "ui_hold_valley_band", "ui_hold_still_tol",
     ):
         assert dpg.does_item_exist(tag), f"missing control {tag}"
 

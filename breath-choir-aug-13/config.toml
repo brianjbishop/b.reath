@@ -25,13 +25,11 @@ rest_enter_amp = 0.03999999910593033
 slope_enter_abs = 0.07999999821186066
 slope_rest_abs = 0.015
 hysteresis = 0.019999999552965164
-min_phase_ms = 120
+phase_stickiness = 0.5
 hold_enabled = true
-min_hold_ms = 1500
 hold_peak_band = 0.8
 hold_valley_band = 0.2
 hold_still_tol = 0.05
-hold_exit_delta = 0.15
 
 [midi]
 out_port = "IAC Driver BreathMIDI"

@@ -234,3 +234,66 @@ def test_hover_hit_test_does_not_raise(ctx):
     """
     make(ctx)
     assert K._hovered() is None
+
+
+# ── config round-trip for the derived timings ────────────────────────────────
+
+
+def test_saving_config_with_none_overrides_does_not_raise(tmp_path):
+    """
+    Autosave runs on every parameter change, and TOML has no null. The
+    detection overrides are None by default, so a naive dump raised TypeError
+    and took the app down the first time a knob moved.
+    """
+    import shutil
+    from dataclasses import replace
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
+    src = Path(__file__).parent.parent / "config.toml"
+    dst = tmp_path / "config.toml"
+    shutil.copy(src, dst)
+
+    store = ConfigStore(dst)
+    cfg = store.load()
+    assert cfg.detection.min_hold_ms_override is None, "expected the None default"
+
+    store.save(cfg)  # must not raise
+    again = store.load()
+    assert again == cfg, "config did not survive a save/load round trip"
+
+
+def test_stickiness_drives_the_three_timings(tmp_path):
+    import shutil
+    from dataclasses import replace
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
+    src = Path(__file__).parent.parent / "config.toml"
+    dst = tmp_path / "config.toml"
+    shutil.copy(src, dst)
+    store = ConfigStore(dst)
+    cfg = store.load()
+
+    low = replace(cfg.detection, phase_stickiness=0.0)
+    high = replace(cfg.detection, phase_stickiness=1.0)
+    assert low.min_phase_ms < high.min_phase_ms
+    assert low.min_hold_ms < high.min_hold_ms
+    assert low.hold_exit_delta < high.hold_exit_delta
+
+    # And it persists.
+    store.save(replace(cfg, detection=replace(cfg.detection, phase_stickiness=0.8)))
+    assert store.load().detection.phase_stickiness == pytest.approx(0.8)
+
+
+def test_an_explicit_pin_beats_stickiness(tmp_path):
+    from dataclasses import replace
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
+    cfg = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+    pinned = replace(cfg.detection, phase_stickiness=1.0, min_hold_ms_override=900)
+    assert pinned.min_hold_ms == 900

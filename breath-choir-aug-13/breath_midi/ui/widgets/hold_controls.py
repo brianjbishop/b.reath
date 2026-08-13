@@ -1,5 +1,5 @@
 """
-Hold-detection controls.
+Detection controls.
 
 Lives in the Group Breath right column rather than the Single Breath Detection
 tab, because these are tuned by ear against live performers while watching the
@@ -51,21 +51,15 @@ def build_hold_controls(on_change: Callable) -> None:
             default=0.05, min_value=0.0, max_value=0.50, step=0.005,
             fmt="%.3f", callback=on_change, size=_KNOB_SIZE,
         )
-        dpg.add_spacer(width=8)
-        add_knob(
-            "ui_hold_exit_delta", "Exit Δ",
-            default=0.15, min_value=0.0, max_value=1.0, step=0.01,
-            fmt="%.3f", callback=on_change, size=_KNOB_SIZE,
-        )
     dpg.add_spacer(height=6)
 
     add_knob(
-        "ui_min_hold_ms", "Min hold (ms)",
-        default=1500, min_value=0, max_value=5000, step=50,
-        fmt="%.0f", callback=on_change, size=_KNOB_SIZE, is_int=True,
+        "ui_phase_stickiness", "Stickiness",
+        default=0.5, min_value=0.0, max_value=1.0, step=0.02,
+        callback=on_change, size=_KNOB_SIZE,
     )
     dpg.add_spacer(height=4)
     dpg.add_text(
-        "Drag or scroll.\nWiden Peak/Valley if\nholds are missed.",
+        "Stickiness resists any phase\nchange — raise it to stop\ninhale/exhale chatter before\na hold catches.",
         color=_HINT_COLOR,
     )

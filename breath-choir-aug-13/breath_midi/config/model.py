@@ -32,39 +32,58 @@ class DetectionConfig:
     slope_enter_abs: float
     slope_rest_abs: float
     hysteresis: float
-    min_phase_ms: int
-    # Hold detection.  A hold is the breath sitting near the top or the bottom
-    # of its range and staying there: inside a band, moving less than
-    # hold_still_tol, for min_hold_ms.  Requiring a band is what separates a
-    # deliberate hold from a mid-breath hesitation — a pause at 0.5 is someone
-    # thinking about it, not holding.
+    # ── Phase stickiness ──────────────────────────────────────────────────
     #
-    # The bands are fractions of the performer's own recent range, because the
-    # incoming value is already normalised per device upstream.  That is what
-    # makes one setting work for a shallow breather and a deep one.
-    # min_hold_ms must exceed the natural turnaround of a smooth breath, or
-    # ordinary breathing registers as holding.  Rule of thumb from measurement:
-    # it needs to be roughly an eighth of the breath cycle.  1500ms is clean
-    # down to about 6 breaths/minute, which covers normal and meditative
-    # tempos.  Slower than ~4 breaths/minute, raising this stops helping —
-    # at that point the breath cycle is approaching the length of the upstream
-    # normalisation window and the signal itself is the limit, not the dwell.
+    # One dial for how hard it is to leave the current phase, in either
+    # direction. It drives three things that all express the same idea:
+    #
+    #   min_phase_ms     how long a phase must last before another can start
+    #   min_hold_ms      how long the breath must be still before HOLD latches
+    #   hold_exit_delta  how far it must move to break a latched hold
+    #
+    # They were separate knobs, but they are never usefully tuned apart: the
+    # symptom is always "the phase changes too readily" or "not readily
+    # enough". Chatter between inhale and exhale on a plateau — before a hold
+    # catches — is the case that matters, because with gate-style notes every
+    # flip is an audible spurious note.
+    #
+    # 0 = twitchy, 1 = very sticky. Each derived value can still be pinned
+    # explicitly (config or tests); stickiness only supplies the default.
+    phase_stickiness: float = 0.5
+
     hold_enabled: bool = True
-    min_hold_ms: int = 1500
     hold_peak_band: float = 0.80
     hold_valley_band: float = 0.20
     hold_still_tol: float = 0.05
-    # Once a hold latches it is held until the breath *moves away* by this much
-    # from where it latched — slope alone is not enough to break it.
-    #
-    # This exists because the upstream normalisation is a rolling min/max: hold
-    # your breath and the window gradually forgets the breathing that set its
-    # range, so the reported value drifts even though the performer is still.
-    # That drift has slope, and a slope-based exit reads it as a new inhale or
-    # exhale — the hold silently ends while the performer is still holding.
-    # Displacement does not have that problem: drift is slow and bounded, a real
-    # breath is neither.
-    hold_exit_delta: float = 0.15
+
+    # Explicit overrides. None means "derive from phase_stickiness".
+    min_phase_ms_override: int | None = None
+    min_hold_ms_override: int | None = None
+    hold_exit_delta_override: float | None = None
+
+    def _s(self) -> float:
+        return max(0.0, min(1.0, float(self.phase_stickiness)))
+
+    @property
+    def min_phase_ms(self) -> int:
+        """Dwell before any phase change is accepted. This is the anti-chatter one."""
+        if self.min_phase_ms_override is not None:
+            return int(self.min_phase_ms_override)
+        return int(100 + self._s() * 500)          # 100 … 600 ms
+
+    @property
+    def min_hold_ms(self) -> int:
+        """Stillness required before HOLD latches."""
+        if self.min_hold_ms_override is not None:
+            return int(self.min_hold_ms_override)
+        return int(700 + self._s() * 1800)         # 700 … 2500 ms
+
+    @property
+    def hold_exit_delta(self) -> float:
+        """Travel required to break a latched hold."""
+        if self.hold_exit_delta_override is not None:
+            return float(self.hold_exit_delta_override)
+        return 0.05 + self._s() * 0.25             # 0.05 … 0.30
 
 
 @dataclass(frozen=True)

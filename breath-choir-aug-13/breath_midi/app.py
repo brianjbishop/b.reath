@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from breath_midi.crashlog import install as install_crashlog
 from breath_midi.config.store import ConfigStore
 from breath_midi.every_breath.hub import EveryBreathHub
 from breath_midi.midi.activity_bus import MidiActivityBus
@@ -11,6 +12,7 @@ from breath_midi.ui.main_window import run_ui
 
 
 def main() -> int:
+    install_crashlog()
     project_root = Path(__file__).resolve().parents[1]
     config_path = project_root / "config.toml"
 

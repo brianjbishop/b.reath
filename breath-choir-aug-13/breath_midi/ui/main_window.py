@@ -23,6 +23,7 @@ from breath_midi.config.model import (
     UiConfig,
 )
 from breath_midi.config.store import ConfigStore
+from breath_midi.crashlog import guard
 from breath_midi.midi.activity_bus import MidiActivityBus, MidiActivityEvent
 from breath_midi.midi.mido_sink import MidoMidiSink
 from breath_midi.runtime import ControllerRuntime
@@ -150,8 +151,11 @@ class BreathMidiDpgUI:
         self._tab_manager = TabActivityManager(self.runtime, self._eb_hub)
 
         while dpg.is_dearpygui_running():
-            self._flush_ui_persist()
-            self.tick()
+            # A single bad frame — a stale tag, a device vanishing mid-update —
+            # must not end a performance.  Logged once, then suppressed.
+            with guard("frame"):
+                self._flush_ui_persist()
+                self.tick()
             dpg.render_dearpygui_frame()
             time.sleep(0.016)
 
@@ -562,15 +566,6 @@ class BreathMidiDpgUI:
             min_value=0.0,
             max_value=0.5,
             format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Min phase (ms)")
-        dpg.add_input_int(
-            tag="ui_min_phase_ms",
-            width=140,
-            min_value=0,
-            max_value=2000,
-            default_value=120,
             callback=self._cb,
         )
         dpg.add_spacer(height=8)
@@ -1073,13 +1068,11 @@ class BreathMidiDpgUI:
                 slope_enter_abs=float(dpg.get_value("ui_slope_enter")),
                 slope_rest_abs=float(dpg.get_value("ui_slope_rest")),
                 hysteresis=float(dpg.get_value("ui_hysteresis")),
-                min_phase_ms=int(dpg.get_value("ui_min_phase_ms")),
+                phase_stickiness=float(dpg.get_value("ui_phase_stickiness")),
                 hold_enabled=bool(dpg.get_value("ui_hold_enabled")),
-                min_hold_ms=int(dpg.get_value("ui_min_hold_ms")),
                 hold_peak_band=float(dpg.get_value("ui_hold_peak_band")),
                 hold_valley_band=float(dpg.get_value("ui_hold_valley_band")),
                 hold_still_tol=float(dpg.get_value("ui_hold_still_tol")),
-                hold_exit_delta=float(dpg.get_value("ui_hold_exit_delta")),
             )
             port_name = str(dpg.get_value("ui_midi_port") or "").strip()
             midi_cfg = replace(
@@ -1175,13 +1168,11 @@ class BreathMidiDpgUI:
             dpg.set_value("ui_slope_enter", float(cfg.detection.slope_enter_abs))
             dpg.set_value("ui_slope_rest", float(cfg.detection.slope_rest_abs))
             dpg.set_value("ui_hysteresis", float(cfg.detection.hysteresis))
-            dpg.set_value("ui_min_phase_ms", int(cfg.detection.min_phase_ms))
+            dpg.set_value("ui_phase_stickiness", float(cfg.detection.phase_stickiness))
             dpg.set_value("ui_hold_enabled", bool(cfg.detection.hold_enabled))
-            dpg.set_value("ui_min_hold_ms", int(cfg.detection.min_hold_ms))
             dpg.set_value("ui_hold_peak_band", float(cfg.detection.hold_peak_band))
             dpg.set_value("ui_hold_valley_band", float(cfg.detection.hold_valley_band))
             dpg.set_value("ui_hold_still_tol", float(cfg.detection.hold_still_tol))
-            dpg.set_value("ui_hold_exit_delta", float(cfg.detection.hold_exit_delta))
             # Knobs are drawn from their bound value; set_value alone cannot
             # repaint them.
             refresh_knobs()

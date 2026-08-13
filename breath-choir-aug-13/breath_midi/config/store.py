@@ -106,13 +106,15 @@ class ConfigStore:
             slope_enter_abs=float(detection_raw.get("slope_enter_abs", 0.08)),
             slope_rest_abs=float(detection_raw.get("slope_rest_abs", 0.03)),
             hysteresis=_req_float(detection_raw, "hysteresis"),
-            min_phase_ms=_req_int(detection_raw, "min_phase_ms"),
+            phase_stickiness=float(detection_raw.get("phase_stickiness", 0.5)),
             hold_enabled=bool(detection_raw.get("hold_enabled", True)),
-            min_hold_ms=int(detection_raw.get("min_hold_ms", 1500)),
             hold_peak_band=float(detection_raw.get("hold_peak_band", 0.80)),
             hold_valley_band=float(detection_raw.get("hold_valley_band", 0.20)),
             hold_still_tol=float(detection_raw.get("hold_still_tol", 0.05)),
-            hold_exit_delta=float(detection_raw.get("hold_exit_delta", 0.15)),
+            # Optional pins; normally absent so stickiness decides.
+            min_phase_ms_override=detection_raw.get("min_phase_ms_override"),
+            min_hold_ms_override=detection_raw.get("min_hold_ms_override"),
+            hold_exit_delta_override=detection_raw.get("hold_exit_delta_override"),
         )
         midi_cfg = MidiConfig(
             out_port=str(midi_raw.get("out_port", "")),
@@ -225,10 +227,26 @@ class ConfigStore:
             viz=viz_cfg,
         )
 
+    @staticmethod
+    def _drop_nones(obj: Any) -> Any:
+        """
+        TOML has no null, so None-valued keys must be omitted entirely.
+
+        The detection overrides default to None meaning "derive from
+        phase_stickiness". Leaving them in made tomli_w raise, and since
+        autosave runs on every parameter change that crashed the app the first
+        time a knob moved.
+        """
+        if isinstance(obj, dict):
+            return {k: ConfigStore._drop_nones(v) for k, v in obj.items() if v is not None}
+        if isinstance(obj, (list, tuple)):
+            return [ConfigStore._drop_nones(v) for v in obj]
+        return obj
+
     def save(self, cfg: ConfigModel) -> None:
         if tomli_w is None:
             raise RuntimeError("tomli-w not installed (required for saving config)")
-        data = asdict(cfg)
+        data = self._drop_nones(asdict(cfg))
         # Match the on-disk config.toml keys (avoid dataclass field renames leaking)
         # tomli-w preserves ordering in insertion order for dicts in py3.7+.
         self.path.write_text(tomli_w.dumps(data), encoding="utf-8")

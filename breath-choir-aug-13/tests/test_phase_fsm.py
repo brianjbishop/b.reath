@@ -21,6 +21,15 @@ SAMPLE_HZ = 50.0
 DT = 1.0 / SAMPLE_HZ
 
 
+# The three timing values are derived from phase_stickiness in normal use.
+# Tests pin them explicitly so each case keeps testing the thing it names.
+_AS_OVERRIDE = {
+    "min_phase_ms": "min_phase_ms_override",
+    "min_hold_ms": "min_hold_ms_override",
+    "hold_exit_delta": "hold_exit_delta_override",
+}
+
+
 def make_detection(**overrides) -> DetectionConfig:
     """Detection config matching breath-choir-aug-13/config.toml defaults."""
     base = dict(
@@ -32,14 +41,17 @@ def make_detection(**overrides) -> DetectionConfig:
         slope_enter_abs=0.08,
         slope_rest_abs=0.015,
         hysteresis=0.02,
-        min_phase_ms=120,
         hold_enabled=True,
-        min_hold_ms=1500,
         hold_peak_band=0.80,
         hold_valley_band=0.20,
         hold_still_tol=0.05,
-        hold_exit_delta=0.15,
+        min_phase_ms_override=120,
+        min_hold_ms_override=1500,
+        hold_exit_delta_override=0.15,
     )
+    for old, new in _AS_OVERRIDE.items():
+        if old in overrides:
+            overrides[new] = overrides.pop(old)
     base.update(overrides)
     return DetectionConfig(**base)
 
