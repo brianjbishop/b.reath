@@ -2,6 +2,18 @@ from __future__ import annotations
 
 import dearpygui.dearpygui as dpg
 
+from breath_midi.types import Phase
+from breath_midi.ui.widgets.arrow_label import add_arrow_label
+
+# Inhale, pause at the top, exhale, pause at the bottom.  With hold beats at 0
+# the two hold phases have zero duration and the cycle collapses to in/out.
+_NEXT_PHASE = {
+    "inhale": "hold_full",
+    "hold_full": "exhale",
+    "exhale": "hold_empty",
+    "hold_empty": "inhale",
+}
+
 _MIN_R: float = 20.0
 _MAX_R: float = 90.0
 _CANVAS_W: int = 200
@@ -29,6 +41,7 @@ class GroupBreathAnimation:
     def __init__(self) -> None:
         self._bpm: float = 60.0
         self._inhale_beats: int = 4
+        self._hold_beats: int = 0
         self._exhale_beats: int = 4
         self._running: bool = False
         self._phase: str = "inhale"   # "inhale" | "exhale"
@@ -90,8 +103,10 @@ class GroupBreathAnimation:
         dpg.add_spacer(height=8)
 
         # ── Beat counts ───────────────────────────────────────────────────────
+        # Same arrows as the device strips, so the guide and the detector are
+        # visibly speaking about the same three phases.
         with dpg.group(horizontal=True):
-            dpg.add_text("In beats:")
+            add_arrow_label(Phase.INHALE)
             dpg.add_input_int(
                 tag="gb_anim_inhale_beats",
                 default_value=self._inhale_beats,
@@ -104,7 +119,20 @@ class GroupBreathAnimation:
             )
 
         with dpg.group(horizontal=True):
-            dpg.add_text("Ex beats:")
+            add_arrow_label(Phase.HOLD)
+            dpg.add_input_int(
+                tag="gb_anim_hold_beats",
+                default_value=self._hold_beats,
+                min_value=0,
+                max_value=16,
+                step=0,
+                width=50,
+                on_enter=True,
+                callback=self._on_hold_beats_change,
+            )
+
+        with dpg.group(horizontal=True):
+            add_arrow_label(Phase.EXHALE)
             dpg.add_input_int(
                 tag="gb_anim_exhale_beats",
                 default_value=self._exhale_beats,
@@ -115,6 +143,7 @@ class GroupBreathAnimation:
                 on_enter=True,
                 callback=self._on_exhale_beats_change,
             )
+        dpg.add_text("0 hold beats = no pause", color=(140, 140, 140))
 
         dpg.add_spacer(height=12)
 
@@ -135,23 +164,32 @@ class GroupBreathAnimation:
 
         bpm = max(20.0, self._bpm)
         spb = 60.0 / bpm  # seconds per beat
-        inh_dur = spb * self._inhale_beats
-        exh_dur = spb * self._exhale_beats
 
         self._phase_t += dt
 
-        # Drain complete phase durations (handles any dt size safely)
-        while True:
-            dur = inh_dur if self._phase == "inhale" else exh_dur
+        # Drain complete phase durations (handles any dt size safely).  With
+        # hold beats at 0 the two hold phases have zero duration and the cycle
+        # collapses back to plain in/out.
+        guard = 0
+        while guard < 64:
+            guard += 1
+            dur = self._phase_duration(spb, self._phase)
             if self._phase_t < dur:
                 break
             self._phase_t -= dur
-            self._phase = "exhale" if self._phase == "inhale" else "inhale"
+            self._phase = _NEXT_PHASE[self._phase]
 
-        # Compute interpolation fraction and radius
-        dur = inh_dur if self._phase == "inhale" else exh_dur
+        dur = self._phase_duration(spb, self._phase)
         raw = (self._phase_t / dur) if dur > 0.0 else 0.0
-        t_frac = raw if self._phase == "inhale" else (1.0 - raw)
+        # The circle only moves while breathing; a hold freezes it where it is.
+        if self._phase == "inhale":
+            t_frac = raw
+        elif self._phase == "exhale":
+            t_frac = 1.0 - raw
+        elif self._phase == "hold_full":
+            t_frac = 1.0
+        else:  # hold_empty
+            t_frac = 0.0
         radius = _MIN_R + t_frac * (_MAX_R - _MIN_R)
 
         self._update_circle(radius)
@@ -205,6 +243,16 @@ class GroupBreathAnimation:
 
     def _on_exhale_beats_change(self, sender, app_data, user_data) -> None:
         self._exhale_beats = max(1, min(16, int(app_data)))
+
+    def _on_hold_beats_change(self, sender, app_data, user_data) -> None:
+        self._hold_beats = max(0, min(16, int(app_data)))
+
+    def _phase_duration(self, spb: float, phase: str) -> float:
+        if phase == "inhale":
+            return spb * self._inhale_beats
+        if phase == "exhale":
+            return spb * self._exhale_beats
+        return spb * self._hold_beats
 
     def _on_start_stop(self) -> None:
         if self._running:

@@ -8,7 +8,13 @@ from breath_midi.every_breath.hub import EveryBreathHub
 from breath_midi.ui.group_breath_animation import GroupBreathAnimation
 from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
 from breath_midi.ui.qr import show_qr_popup
+
+_NET_OK = (0, 200, 110, 255)
+_NET_WRONG = (230, 150, 60, 255)
+_NET_UNKNOWN = (110, 110, 110, 255)
+from breath_midi.net_identity import NetworkWatcher
 from breath_midi.ui.widgets.hold_controls import build_hold_controls
+from breath_midi.ui.widgets.tray_icon import tray_button as _tray_button
 
 
 class GroupBreathTab:
@@ -40,6 +46,10 @@ class GroupBreathTab:
         self._theme_tags: dict[str, int] = {}    # uuid → theme DPG tag
         self._animation = GroupBreathAnimation()
         self._last_tick: float = 0.0
+        net = hub._config.network
+        self._net = NetworkWatcher(expected_mac=net.expected_gateway_mac)
+        self._net_label = net.label
+        self._net.start()
         # Bottom panel parents into the main column, not the outer container
         self._bottom_panel = GroupBreathBottomPanel(hub=hub, parent_tag="gb_main_col")
 
@@ -68,6 +78,23 @@ class GroupBreathTab:
                     label="Show QR",
                     callback=lambda: show_qr_popup(8001, "breath-choir"),
                 )
+                # Pushed to the right edge; recomputed on resize by the
+                # spacer's width, which is cheap enough to leave fixed.
+                dpg.add_spacer(width=-1, tag="gb_header_push")
+                dpg.add_text("", tag="gb_net_dot", color=_NET_UNKNOWN)
+                dpg.add_text("", tag="gb_net_label", color=(150, 150, 150))
+                dpg.add_button(
+                    label="Set",
+                    tag="gb_net_learn",
+                    small=True,
+                    callback=self._on_learn_network,
+                )
+                with dpg.tooltip("gb_net_learn"):
+                    dpg.add_text(
+                        "Remember this router as the performance network.\n"
+                        "Identified by gateway MAC — macOS will not report a\n"
+                        "Wi-Fi name without Location Services permission.",
+                    )
 
             dpg.add_spacer(height=8)
 
@@ -75,10 +102,10 @@ class GroupBreathTab:
             with dpg.group(horizontal=True, tag="gb_body_row"):
 
                 # Left: breathwave plot + per-device strip panel
-                # width=-224 = fill all available minus the 220px animation column
+                # Fill everything except the right column, which is fixed width.
                 with dpg.child_window(
                     tag="gb_main_col",
-                    width=-224,
+                    width=-344,
                     height=-1,
                     border=False,
                 ):
@@ -117,7 +144,7 @@ class GroupBreathTab:
                 # Right: collapsible Detection and Breath Guide sections.
                 with dpg.child_window(
                     tag="gb_anim_col",
-                    width=240,
+                    width=336,
                     height=-1,
                     border=True,
                 ):
@@ -131,14 +158,48 @@ class GroupBreathTab:
                     ):
                         self._animation.build()
 
+                    # Pinned to the bottom of the right column.
+                    dpg.add_spacer(height=-1, tag="gb_tracks_push")
+                    dpg.add_separator()
+                    with dpg.group(horizontal=True, tag="gb_track_row"):
+                        dpg.add_text("Tracks", color=(140, 140, 140))
+                        dpg.add_spacer(width=8)
+                        _tray_button("gb_track_import", into_tray=True)
+                        dpg.add_spacer(width=6)
+                        _tray_button("gb_track_export", into_tray=False)
+                        dpg.add_spacer(width=8)
+                        dpg.add_text("(placeholder)", color=(110, 110, 110))
+
     # ── per-frame update ──────────────────────────────────────────────────────
 
     def stop_animation(self) -> None:
         """Called when the Group Breath tab is toggled off."""
         self._animation.stop()
 
+    def _on_learn_network(self) -> None:
+        mac = self._net.learn_current()
+        if mac:
+            self._on_change()   # persist through main_window's autosave path
+
+    def _refresh_network(self) -> None:
+        identity = self._net.identity
+        if not identity.online:
+            dot, colour, text = "\u25cf", _NET_UNKNOWN, "no network"
+        elif not self._net.expected_mac:
+            dot, colour, text = "\u25cf", _NET_UNKNOWN, f"{identity.ip} (unset)"
+        elif self._net.on_expected_network:
+            dot, colour, text = "\u25cf", _NET_OK, f"{self._net_label}  {identity.ip}"
+        else:
+            dot, colour, text = "\u25cf", _NET_WRONG, f"wrong network  {identity.ip}"
+        if dpg.does_item_exist("gb_net_dot"):
+            dpg.set_value("gb_net_dot", dot)
+            dpg.configure_item("gb_net_dot", color=colour)
+        if dpg.does_item_exist("gb_net_label"):
+            dpg.set_value("gb_net_label", text)
+
     def update(self) -> None:
         """Called every frame from main_window.tick()."""
+        self._refresh_network()
         now = time.monotonic()
         dt = now - self._last_tick if self._last_tick > 0.0 else 0.0
         self._last_tick = now

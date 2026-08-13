@@ -456,3 +456,102 @@ def test_blank_rename_is_ignored(dpg_context):
     dpg.set_value(f"gb_strip_name_edit_{snap.uuid}", "   ")
     panel._on_name_commit(snap.uuid)
     assert renamed == []
+
+
+def test_enter_commits_an_open_rename(dpg_context):
+    """
+    The input already sets on_enter, but that did not fire for a widget that
+    gets shown and hidden — only clicking away committed. A global key handler
+    makes it deterministic, so this drives that path directly.
+    """
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+
+    saved: list[tuple[str, str]] = []
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: type("E", (), {"name": "old"})()})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+        def set_name(self, uuid, name):
+            saved.append((uuid, name))
+
+    for tag in ("theme_circle_gray", "theme_circle_yellow", "theme_gate_green"):
+        with dpg.theme(tag=tag):
+            pass
+    with dpg.group(parent=dpg_context, tag="gb_strip_row"):
+        pass
+
+    panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    snap = snapshot(uuid="dev-e")
+    panel._build_strip(snap)
+    panel._built_uuids = [snap.uuid]
+
+    panel._begin_rename(snap.uuid)
+    dpg.set_value(f"gb_strip_name_edit_{snap.uuid}", "Tenor 1")
+    panel._commit_open_rename()          # what the Enter key handler calls
+
+    assert saved == [(snap.uuid, "Tenor 1")]
+    assert not dpg.is_item_shown(f"gb_strip_name_edit_{snap.uuid}")
+
+
+def test_enter_with_no_rename_open_is_harmless(dpg_context):
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+    panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    panel._commit_open_rename()   # must not raise
+
+
+def test_breath_guide_holds_for_the_configured_beats():
+    """Hold beats pause the circle; zero collapses back to plain in/out."""
+    from breath_midi.ui.group_breath_animation import _NEXT_PHASE, GroupBreathAnimation
+
+    assert _NEXT_PHASE == {
+        "inhale": "hold_full",
+        "hold_full": "exhale",
+        "exhale": "hold_empty",
+        "hold_empty": "inhale",
+    }
+
+    anim = GroupBreathAnimation()
+    anim._bpm = 60.0          # one beat per second
+    anim._inhale_beats = 2
+    anim._exhale_beats = 2
+
+    anim._hold_beats = 0
+    spb = 1.0
+    assert anim._phase_duration(spb, "hold_full") == 0.0
+    assert anim._phase_duration(spb, "inhale") == 2.0
+
+    anim._hold_beats = 3
+    assert anim._phase_duration(spb, "hold_full") == 3.0
+    assert anim._phase_duration(spb, "hold_empty") == 3.0
+
+
+def test_track_buttons_are_mirrored_arrows(dpg_context):
+    """Import points into the tray, export points out of it."""
+    from breath_midi.ui.widgets.tray_icon import tray_button
+
+    with dpg.group(parent=dpg_context):
+        tray_button("t_imp", into_tray=True)
+        tray_button("t_exp", into_tray=False)
+
+    def head_and_tail(tag):
+        arrows = [c for c in dpg.get_item_children(tag, 2)
+                  if dpg.get_item_type(c).endswith("mvDrawArrow")]
+        cfg = dpg.get_item_configuration(arrows[0])
+        return tuple(cfg["p1"])[:2], tuple(cfg["p2"])[:2]
+
+    (hx, hy), (tx, ty) = head_and_tail("t_imp")
+    assert hy > ty, "import arrow should point down into the tray"
+    (hx, hy), (tx, ty) = head_and_tail("t_exp")
+    assert hy < ty, "export arrow should point up out of the tray"

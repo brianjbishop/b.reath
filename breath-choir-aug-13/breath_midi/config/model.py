@@ -185,6 +185,20 @@ class VizConfig:
 
 
 @dataclass(frozen=True)
+class NetworkConfig:
+    """
+    Which router counts as the performance network.
+
+    Identified by gateway MAC, not SSID: macOS will not report an SSID without
+    Location Services, and a MAC names the specific box rather than a name that
+    two routers could share.  Empty means "not set yet".
+    """
+
+    expected_gateway_mac: str = ""
+    label: str = "breath-choir"
+
+
+@dataclass(frozen=True)
 class UiConfig:
     window_width: int = 1320
     window_height: int = 880
@@ -206,4 +220,5 @@ class ConfigModel:
     triggers: TriggersConfig
     ui: UiConfig
     viz: VizConfig = field(default_factory=VizConfig)
+    network: NetworkConfig = field(default_factory=NetworkConfig)
 

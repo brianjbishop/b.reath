@@ -15,8 +15,8 @@ from breath_midi.ui.widgets.phase_rhombus import (
     refresh_phase_rhombus,
 )
 
-_STRIP_W = 200
-_RHOMBUS_SIZE = 72
+_STRIP_W = 236
+_RHOMBUS_SIZE = 92
 _GRAY_INACTIVE = (80, 80, 80, 255)
 _GATE_OPEN_COLOR = (0, 200, 100, 255)
 # N=0 bypasses the gate entirely, so lighting it green would claim something is
@@ -70,6 +70,7 @@ class GroupBreathBottomPanel:
         # delete them explicitly or they accumulate.
         self._name_handler_tags: dict[str, int] = {}
         self._edit_handler_tags: dict[str, int] = {}
+        self._enter_handler: int | None = None
 
 
     def _bands(self) -> tuple[float, float]:
@@ -469,6 +470,33 @@ class GroupBreathBottomPanel:
 
     # ── interaction callbacks ─────────────────────────────────────────────────
 
+    def _ensure_enter_handler(self) -> None:
+        """
+        Commit a rename on Enter.
+
+        The input already sets on_enter, but that did not fire for a widget
+        that gets shown and hidden — only clicking away committed. A global key
+        handler does not depend on those semantics: whichever rename is open
+        gets committed, and there is at most one.
+        """
+        if self._enter_handler is not None:
+            return
+        with dpg.handler_registry() as reg:
+            dpg.add_key_release_handler(
+                key=dpg.mvKey_Return, callback=lambda *_: self._commit_open_rename()
+            )
+            dpg.add_key_release_handler(
+                key=dpg.mvKey_NumPadEnter, callback=lambda *_: self._commit_open_rename()
+            )
+        self._enter_handler = reg
+
+    def _commit_open_rename(self) -> None:
+        for uuid in list(self._built_uuids):
+            edit_tag = f"gb_strip_name_edit_{uuid}"
+            if dpg.does_item_exist(edit_tag) and dpg.is_item_shown(edit_tag):
+                self._on_name_commit(uuid)
+                return
+
     def _begin_rename(self, uuid: str) -> None:
         """Double-click swaps the label for an input and focuses it."""
         name_tag, edit_tag = f"gb_strip_name_{uuid}", f"gb_strip_name_edit_{uuid}"
@@ -479,6 +507,7 @@ class GroupBreathBottomPanel:
         dpg.configure_item(name_tag, show=False)
         dpg.configure_item(edit_tag, show=True)
         dpg.focus_item(edit_tag)
+        self._ensure_enter_handler()
 
     def _on_name_commit(self, uuid: str) -> None:
         """Save and swap back. Fires on Enter and on losing focus."""

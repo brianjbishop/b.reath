@@ -31,21 +31,20 @@ def build_hold_controls(on_change: Callable) -> None:
     )
     dpg.add_spacer(height=4)
 
-    # Two rows of two: four knobs side by side do not fit the side column.
+    # Peak / Valley / Still tol on one row; the column is wide enough now.
     with dpg.group(horizontal=True):
         add_knob(
             "ui_hold_peak_band", "Peak",
             default=0.80, min_value=0.0, max_value=1.0, step=0.01,
             callback=on_change, size=_KNOB_SIZE,
         )
-        dpg.add_spacer(width=8)
+        dpg.add_spacer(width=10)
         add_knob(
             "ui_hold_valley_band", "Valley",
             default=0.20, min_value=0.0, max_value=1.0, step=0.01,
             callback=on_change, size=_KNOB_SIZE,
         )
-    dpg.add_spacer(height=4)
-    with dpg.group(horizontal=True):
+        dpg.add_spacer(width=10)
         add_knob(
             "ui_hold_still_tol", "Still tol",
             default=0.05, min_value=0.0, max_value=0.50, step=0.005,

@@ -14,6 +14,7 @@ from breath_midi.config.model import (
     InputConfig,
     MidiActivityUiConfig,
     MidiConfig,
+    NetworkConfig,
     SignalConfig,
     SustainTriggerConfig,
     TriggersConfig,
@@ -79,6 +80,7 @@ class ConfigStore:
         triggers_raw = raw.get("triggers", {})
         ui_raw = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
         viz_raw = raw.get("viz", {}) if isinstance(raw.get("viz", {}), dict) else {}
+        net_raw = raw.get("network", {}) if isinstance(raw.get("network", {}), dict) else {}
 
         input_cfg = InputConfig(
             mode=_req_str(input_raw, "mode"),
@@ -225,6 +227,10 @@ class ConfigStore:
             triggers=triggers_cfg,
             ui=ui_cfg,
             viz=viz_cfg,
+            network=NetworkConfig(
+                expected_gateway_mac=str(net_raw.get("expected_gateway_mac", "")),
+                label=str(net_raw.get("label", "breath-choir")),
+            ),
         )
 
     @staticmethod

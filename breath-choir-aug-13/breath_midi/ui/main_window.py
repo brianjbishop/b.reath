@@ -1082,6 +1082,11 @@ class BreathMidiDpgUI:
                 hold_valley_band=float(dpg.get_value("ui_hold_valley_band")),
                 hold_still_tol=float(dpg.get_value("ui_hold_still_tol")),
             )
+            net_cfg = cfg.network
+            gb = self._gb_tab
+            if gb is not None and getattr(gb, "_net", None) is not None:
+                net_cfg = replace(net_cfg, expected_gateway_mac=gb._net.expected_mac)
+
             port_name = str(dpg.get_value("ui_midi_port") or "").strip()
             midi_cfg = replace(
                 cfg.midi,

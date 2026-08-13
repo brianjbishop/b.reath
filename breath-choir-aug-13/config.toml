@@ -111,3 +111,10 @@ show_note_name = false
 ws_enabled = true
 ws_port = 8765
 ws_host = "localhost"
+
+# Which router counts as the performance network. Identified by gateway MAC
+# because macOS will not report an SSID without Location Services. Set it from
+# the "Set" button in the Group Breath toolbar while on the right network.
+[network]
+expected_gateway_mac = ""
+label = "breath-choir"
