@@ -102,21 +102,14 @@ class ConfigStore:
             derivative_smoothing_alpha=_req_float(
                 detection_raw, "derivative_smoothing_alpha"
             ),
-            inhale_enter_amp=_req_float(detection_raw, "inhale_enter_amp"),
-            exhale_enter_amp=_req_float(detection_raw, "exhale_enter_amp"),
-            rest_enter_amp=_req_float(detection_raw, "rest_enter_amp"),
-            slope_enter_abs=float(detection_raw.get("slope_enter_abs", 0.08)),
-            slope_rest_abs=float(detection_raw.get("slope_rest_abs", 0.03)),
-            hysteresis=_req_float(detection_raw, "hysteresis"),
-            phase_stickiness=float(detection_raw.get("phase_stickiness", 0.5)),
+            inhale_exit_delta=float(detection_raw.get("inhale_exit_delta", 0.06)),
+            exhale_exit_delta=float(detection_raw.get("exhale_exit_delta", 0.12)),
+            hold_exit_delta=float(detection_raw.get("hold_exit_delta", 0.15)),
             hold_enabled=bool(detection_raw.get("hold_enabled", True)),
+            hold_still_tol=float(detection_raw.get("hold_still_tol", 0.05)),
+            min_hold_ms=int(detection_raw.get("min_hold_ms", 1500)),
             hold_peak_band=float(detection_raw.get("hold_peak_band", 0.80)),
             hold_valley_band=float(detection_raw.get("hold_valley_band", 0.20)),
-            hold_still_tol=float(detection_raw.get("hold_still_tol", 0.05)),
-            # Optional pins; normally absent so stickiness decides.
-            min_phase_ms_override=detection_raw.get("min_phase_ms_override"),
-            min_hold_ms_override=detection_raw.get("min_hold_ms_override"),
-            hold_exit_delta_override=detection_raw.get("hold_exit_delta_override"),
         )
         midi_cfg = MidiConfig(
             out_port=str(midi_raw.get("out_port", "")),

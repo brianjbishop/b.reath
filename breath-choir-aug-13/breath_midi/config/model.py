@@ -24,66 +24,53 @@ class SignalConfig:
 
 @dataclass(frozen=True)
 class DetectionConfig:
+    """
+    Breath phase detection.
+
+    Phase changes are decided by **retracement**, not by instantaneous slope: a
+    phase ends once the breath has travelled a set distance back from the
+    extreme it reached during that phase. Slope alone was the cause of the
+    inhale/exhale chatter — on a plateau, noise pushes the derivative across a
+    threshold repeatedly without the breath actually going anywhere, and with
+    gate-style notes each flip is an audible spurious note.
+
+    The three exit deltas are separate because a retracement is measured on the
+    *next* phase's movement, and breathing is asymmetric — I:E runs 1:3 to 1:5.
+    Leaving an inhale waits on the slow exhale, so it needs a small threshold;
+    leaving an exhale waits on the fast inhale and can afford a large one.
+    Measured on a 1:4 breath, a single shared 0.12 detected the exhale 0.44s
+    late against 0.13s for the inhale — every cycle dragging on one side.
+
+    All deltas are fractions of the performer's own recent range, since the
+    incoming value is already normalised per device upstream.
+    """
+
     derivative_enabled: bool
     derivative_smoothing_alpha: float
-    inhale_enter_amp: float
-    exhale_enter_amp: float
-    rest_enter_amp: float
-    slope_enter_abs: float
-    slope_rest_abs: float
-    hysteresis: float
-    # ── Phase stickiness ──────────────────────────────────────────────────
-    #
-    # One dial for how hard it is to leave the current phase, in either
-    # direction. It drives three things that all express the same idea:
-    #
-    #   min_phase_ms     how long a phase must last before another can start
-    #   min_hold_ms      how long the breath must be still before HOLD latches
-    #   hold_exit_delta  how far it must move to break a latched hold
-    #
-    # They were separate knobs, but they are never usefully tuned apart: the
-    # symptom is always "the phase changes too readily" or "not readily
-    # enough". Chatter between inhale and exhale on a plateau — before a hold
-    # catches — is the case that matters, because with gate-style notes every
-    # flip is an audible spurious note.
-    #
-    # 0 = twitchy, 1 = very sticky. Each derived value can still be pinned
-    # explicitly (config or tests); stickiness only supplies the default.
-    phase_stickiness: float = 0.5
 
+    # ── Exit: how far the breath must move to end each phase ──────────────
+    inhale_exit_delta: float = 0.06   # fall this far to call the exhale
+    exhale_exit_delta: float = 0.12   # rise this far to call the inhale
+    hold_exit_delta: float = 0.15     # move this far to break a hold
+
+    # ── Hold ──────────────────────────────────────────────────────────────
     hold_enabled: bool = True
-    hold_peak_band: float = 0.80
-    hold_valley_band: float = 0.20
-    hold_still_tol: float = 0.05
+    hold_still_tol: float = 0.05      # how little movement counts as still
+    min_hold_ms: int = 1500           # how long that stillness must persist
+    hold_peak_band: float = 0.80      # a hold may be declared above this...
+    hold_valley_band: float = 0.20    # ...or below this
 
-    # Explicit overrides. None means "derive from phase_stickiness".
-    min_phase_ms_override: int | None = None
-    min_hold_ms_override: int | None = None
-    hold_exit_delta_override: float | None = None
 
-    def _s(self) -> float:
-        return max(0.0, min(1.0, float(self.phase_stickiness)))
+# Not a dial: a floor that stops per-sample flapping at odd frame rates.
+# Retracement does the anti-chatter work; this only guards the degenerate case.
+MIN_PHASE_FLOOR_MS = 80
 
-    @property
-    def min_phase_ms(self) -> int:
-        """Dwell before any phase change is accepted. This is the anti-chatter one."""
-        if self.min_phase_ms_override is not None:
-            return int(self.min_phase_ms_override)
-        return int(100 + self._s() * 500)          # 100 … 600 ms
-
-    @property
-    def min_hold_ms(self) -> int:
-        """Stillness required before HOLD latches."""
-        if self.min_hold_ms_override is not None:
-            return int(self.min_hold_ms_override)
-        return int(700 + self._s() * 1800)         # 700 … 2500 ms
-
-    @property
-    def hold_exit_delta(self) -> float:
-        """Travel required to break a latched hold."""
-        if self.hold_exit_delta_override is not None:
-            return float(self.hold_exit_delta_override)
-        return 0.05 + self._s() * 0.25             # 0.05 … 0.30
+# A "cycle" shorter than this is not a breath — it is the detector settling, or
+# noise. Counting one pollutes the rolling period average that the consistency
+# gate reads, and satisfies the one-completed-cycle guard that holds wait on,
+# which is how a smooth sine ended up latching a hold on its very first peak.
+# 0.8s leaves headroom below even a hyperventilating 60 breaths/minute.
+MIN_CYCLE_S = 0.8
 
 
 @dataclass(frozen=True)

@@ -486,6 +486,12 @@ class BreathMidiDpgUI:
             dpg.add_button(label="Stop OSC", callback=lambda: self._osc_stop())
 
     def _build_tab_detection(self) -> None:
+        dpg.add_text(
+            "Phase detection is tuned in the Detection panel of the\n"
+            "Group Breath tab, next to the waveform it affects.",
+            color=(150, 150, 150),
+        )
+        dpg.add_spacer(height=6)
         dpg.add_text("Smoothing alpha")
         dpg.add_input_float(
             tag="ui_smooth",
@@ -514,66 +520,6 @@ class BreathMidiDpgUI:
             min_value=0.1,
             max_value=10.0,
             format="%.2f",
-            callback=self._cb,
-        )
-        dpg.add_text("Inhale enter amp")
-        dpg.add_input_float(
-            tag="ui_inh_enter",
-            width=140,
-            default_value=0.08,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Exhale enter amp")
-        dpg.add_input_float(
-            tag="ui_exh_enter",
-            width=140,
-            default_value=0.08,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Rest enter amp")
-        dpg.add_input_float(
-            tag="ui_rest_enter",
-            width=140,
-            default_value=0.04,
-            min_value=0.0,
-            max_value=1.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Slope enter epsilon (abs dA/dt)")
-        dpg.add_input_float(
-            tag="ui_slope_enter",
-            width=140,
-            default_value=0.08,
-            min_value=0.0,
-            max_value=5.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Slope flat epsilon for REST (abs dA/dt)")
-        dpg.add_input_float(
-            tag="ui_slope_rest",
-            width=140,
-            default_value=0.03,
-            min_value=0.0,
-            max_value=5.0,
-            format="%.3f",
-            callback=self._cb,
-        )
-        dpg.add_text("Hysteresis")
-        dpg.add_input_float(
-            tag="ui_hysteresis",
-            width=140,
-            default_value=0.02,
-            min_value=0.0,
-            max_value=0.5,
-            format="%.3f",
             callback=self._cb,
         )
         dpg.add_spacer(height=8)
@@ -1070,17 +1016,14 @@ class BreathMidiDpgUI:
             )
             detection_cfg = replace(
                 cfg.detection,
-                inhale_enter_amp=float(dpg.get_value("ui_inh_enter")),
-                exhale_enter_amp=float(dpg.get_value("ui_exh_enter")),
-                rest_enter_amp=float(dpg.get_value("ui_rest_enter")),
-                slope_enter_abs=float(dpg.get_value("ui_slope_enter")),
-                slope_rest_abs=float(dpg.get_value("ui_slope_rest")),
-                hysteresis=float(dpg.get_value("ui_hysteresis")),
-                phase_stickiness=float(dpg.get_value("ui_phase_stickiness")),
+                inhale_exit_delta=float(dpg.get_value("ui_inhale_exit_delta")),
+                exhale_exit_delta=float(dpg.get_value("ui_exhale_exit_delta")),
+                hold_exit_delta=float(dpg.get_value("ui_hold_exit_delta")),
                 hold_enabled=bool(dpg.get_value("ui_hold_enabled")),
+                hold_still_tol=float(dpg.get_value("ui_hold_still_tol")),
+                min_hold_ms=int(dpg.get_value("ui_min_hold_ms")),
                 hold_peak_band=float(dpg.get_value("ui_hold_peak_band")),
                 hold_valley_band=float(dpg.get_value("ui_hold_valley_band")),
-                hold_still_tol=float(dpg.get_value("ui_hold_still_tol")),
             )
             net_cfg = cfg.network
             gb = self._gb_tab
@@ -1175,17 +1118,14 @@ class BreathMidiDpgUI:
             dpg.set_value("ui_smooth", float(cfg.signal.smoothing_alpha))
             dpg.set_value("ui_deadzone", float(cfg.signal.deadzone))
             dpg.set_value("ui_gain", float(cfg.signal.gain))
-            dpg.set_value("ui_inh_enter", float(cfg.detection.inhale_enter_amp))
-            dpg.set_value("ui_exh_enter", float(cfg.detection.exhale_enter_amp))
-            dpg.set_value("ui_rest_enter", float(cfg.detection.rest_enter_amp))
-            dpg.set_value("ui_slope_enter", float(cfg.detection.slope_enter_abs))
-            dpg.set_value("ui_slope_rest", float(cfg.detection.slope_rest_abs))
-            dpg.set_value("ui_hysteresis", float(cfg.detection.hysteresis))
-            dpg.set_value("ui_phase_stickiness", float(cfg.detection.phase_stickiness))
+            dpg.set_value("ui_inhale_exit_delta", float(cfg.detection.inhale_exit_delta))
+            dpg.set_value("ui_exhale_exit_delta", float(cfg.detection.exhale_exit_delta))
+            dpg.set_value("ui_hold_exit_delta", float(cfg.detection.hold_exit_delta))
             dpg.set_value("ui_hold_enabled", bool(cfg.detection.hold_enabled))
+            dpg.set_value("ui_hold_still_tol", float(cfg.detection.hold_still_tol))
+            dpg.set_value("ui_min_hold_ms", int(cfg.detection.min_hold_ms))
             dpg.set_value("ui_hold_peak_band", float(cfg.detection.hold_peak_band))
             dpg.set_value("ui_hold_valley_band", float(cfg.detection.hold_valley_band))
-            dpg.set_value("ui_hold_still_tol", float(cfg.detection.hold_still_tol))
             # Knobs are drawn from their bound value; set_value alone cannot
             # repaint them.
             refresh_knobs()

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
-from breath_midi.config.model import DetectionConfig
+from breath_midi.config.model import MIN_CYCLE_S, MIN_PHASE_FLOOR_MS, DetectionConfig
 from breath_midi.types import (
     CycleMetrics,
     FeatureFrame,
@@ -46,6 +46,15 @@ class FeatureExtractor:
         # this, not against the moving signal, so upstream renormalisation
         # drift cannot end it.  None whenever the phase is not HOLD.
         self._hold_latch_amp: float | None = None
+
+        # Highest amplitude seen during the current inhale, or lowest during
+        # the current exhale.  Phase changes are measured back from this, not
+        # from the instantaneous slope — see DetectionConfig.
+        self._extreme: float | None = None
+
+        # Cold-start bounds, used only while the phase is REST.
+        self._rest_lo: float | None = None
+        self._rest_hi: float | None = None
 
         # cycle tracking
         self._cycle_anchored: bool = False
@@ -107,7 +116,7 @@ class FeatureExtractor:
         # sample and that value pollutes the rolling average the
         # consistent-breaths gate reads.
         if phase_changed and phase_next == Phase.INHALE and self._cycle_start_t is not None:
-            if self._cycle_anchored:
+            if self._cycle_anchored and (t - self._cycle_start_t) >= MIN_CYCLE_S:
                 period = max(1e-6, t - self._cycle_start_t)
                 cycle = CycleMetrics(period_s=period, peak_amp=float(self._cycle_peak))
                 self._last_cycle = cycle
@@ -126,6 +135,8 @@ class FeatureExtractor:
             # Anchor the hold where it started, and drop the anchor on the way
             # out so the next hold measures from its own starting point.
             self._hold_latch_amp = amp if phase_next == Phase.HOLD else None
+            # Each phase measures its retracement from its own starting point.
+            self._extreme = amp
             # NOTE: the hold window is deliberately *not* cleared here.  It used
             # to be, to stop one phase's samples bleeding into the next — but
             # that made holds impossible to detect on real data: noise makes the
@@ -209,53 +220,63 @@ class FeatureExtractor:
         return mid >= float(cfg.hold_peak_band) or mid <= float(cfg.hold_valley_band)
 
     def _next_phase(self, amp: float, d_amp: float, current: Phase) -> Phase:
+        """
+        Decide the next phase from how far the breath has retraced.
+
+        `d_amp` is still computed and reported on the frame — the UI and the
+        consistency trigger read it — but it no longer decides transitions.
+        A slope test asks "is it moving?", which noise answers yes to on a
+        plateau.  Retracement asks "has it actually gone anywhere?", which
+        noise cannot fake.
+        """
         cfg = self.cfg
-
-        h = float(cfg.hysteresis)
-        slope_enter_abs = max(0.0, float(cfg.slope_enter_abs))
-
-        slope_enter = slope_enter_abs + h
-
-        is_rising_enter = d_amp >= slope_enter
-        is_falling_enter = d_amp <= -slope_enter
-
         t_now = self._last_t
         held_flat = self._held_flat()
 
-        min_phase_s = max(0.0, float(cfg.min_phase_ms) / 1000.0)
+        floor_s = MIN_PHASE_FLOOR_MS / 1000.0
         if self._phase_enter_t is not None and t_now is not None:
-            if (t_now - self._phase_enter_t) < min_phase_s:
+            if (t_now - self._phase_enter_t) < floor_s:
                 return current
 
-        # One HOLD state, entered from either end of the breath.  _held_flat()
-        # already required the band, so reaching here means the pause is at the
-        # top or the bottom rather than mid-breath.
         if current == Phase.REST:
-            if is_rising_enter:
+            # Cold start: no direction yet, so watch both ends. A single
+            # extreme cannot work here — tracking only the maximum makes
+            # `amp - extreme` zero on a rising ramp, and the FSM never leaves
+            # REST at all.
+            first = min(float(cfg.inhale_exit_delta), float(cfg.exhale_exit_delta))
+            self._rest_lo = amp if self._rest_lo is None else min(self._rest_lo, amp)
+            self._rest_hi = amp if self._rest_hi is None else max(self._rest_hi, amp)
+            if (amp - self._rest_lo) >= first:
                 return Phase.INHALE
-            if is_falling_enter:
+            if (self._rest_hi - amp) >= first:
                 return Phase.EXHALE
             return Phase.REST
 
         if current == Phase.INHALE:
-            if is_falling_enter:
-                return Phase.EXHALE
+            if self._extreme is None:
+                self._extreme = amp
+            self._extreme = max(self._extreme, amp)
             if held_flat:
                 return Phase.HOLD
+            # Fallen far enough below the peak of this inhale to call the turn.
+            if (self._extreme - amp) >= float(cfg.inhale_exit_delta):
+                return Phase.EXHALE
             return Phase.INHALE
 
         if current == Phase.EXHALE:
-            if is_rising_enter:
-                return Phase.INHALE
+            if self._extreme is None:
+                self._extreme = amp
+            self._extreme = min(self._extreme, amp)
             if held_flat:
                 return Phase.HOLD
+            if (amp - self._extreme) >= float(cfg.exhale_exit_delta):
+                return Phase.INHALE
             return Phase.EXHALE
 
         if current == Phase.HOLD:
-            # A latched hold is broken by displacement, not by slope.  See
-            # DetectionConfig.hold_exit_delta: rolling renormalisation makes a
-            # still breath drift, and that drift has enough slope to look like
-            # a new phase.  It does not have enough travel.
+            # A latched hold is broken by displacement from where it latched.
+            # Rolling renormalisation upstream makes a still breath drift, and
+            # that drift has slope but not travel.
             if self._hold_latch_amp is None:
                 self._hold_latch_amp = amp
             moved = amp - self._hold_latch_amp
