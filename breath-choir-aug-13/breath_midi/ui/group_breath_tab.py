@@ -9,6 +9,10 @@ from breath_midi.ui.group_breath_animation import GroupBreathAnimation
 from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
 from breath_midi.ui.qr import show_qr_popup
 
+# Width of the right-hand column. The plot column is sized as its negative,
+# so the two always add up to the window and cannot drift apart.
+RIGHT_COL_W = 336
+
 _NET_OK = (0, 200, 110, 255)
 _NET_WRONG = (230, 150, 60, 255)
 _NET_UNKNOWN = (110, 110, 110, 255)
@@ -105,7 +109,7 @@ class GroupBreathTab:
                 # Fill everything except the right column, which is fixed width.
                 with dpg.child_window(
                     tag="gb_main_col",
-                    width=-344,
+                    width=-(RIGHT_COL_W + 8),
                     height=-1,
                     border=False,
                 ):
@@ -144,7 +148,7 @@ class GroupBreathTab:
                 # Right: collapsible Detection and Breath Guide sections.
                 with dpg.child_window(
                     tag="gb_anim_col",
-                    width=336,
+                    width=RIGHT_COL_W,
                     height=-1,
                     border=True,
                 ):
@@ -156,7 +160,7 @@ class GroupBreathTab:
                     with dpg.collapsing_header(
                         label="Breath Guide", tag="gb_guide_header", default_open=True
                     ):
-                        self._animation.build()
+                        self._animation.build(panel_width=RIGHT_COL_W)
 
                     # Pinned to the bottom of the right column.
                     dpg.add_spacer(height=-1, tag="gb_tracks_push")

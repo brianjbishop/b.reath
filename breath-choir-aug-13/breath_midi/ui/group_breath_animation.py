@@ -46,28 +46,37 @@ class GroupBreathAnimation:
         self._running: bool = False
         self._phase: str = "inhale"   # "inhale" | "exhale"
         self._phase_t: float = 0.0
+        self._indent: int = 0
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
-    def build(self) -> None:
+    def build(self, panel_width: int = _CANVAS_W) -> None:
         """Build all DPG widgets.  Called once inside the parent context."""
         dpg.add_spacer(height=4)
 
-        # ── Pulsing circle ────────────────────────────────────────────────────
-        with dpg.drawlist(
-            tag="gb_anim_drawlist",
-            width=_CANVAS_W,
-            height=_CANVAS_H,
-        ):
-            dpg.draw_circle(
-                center=_CENTER,
-                radius=_MIN_R,
-                color=_COLOR_STOPPED,
-                fill=_COLOR_STOPPED,
-                tag="gb_anim_circle",
-            )
+        # Centre the canvas in the column.  DPG has no centring, so the offset
+        # is computed once here rather than guessed at with a fixed indent.
+        self._indent = max(0, (panel_width - _CANVAS_W) // 2 - 8)
 
-        # Phase label (inhale / exhale)
+        # ── Pulsing circle ────────────────────────────────────────────────────
+        # add_drawlist takes no indent, so the offset goes in a leading spacer.
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=self._indent)
+            with dpg.drawlist(
+                tag="gb_anim_drawlist",
+                width=_CANVAS_W,
+                height=_CANVAS_H,
+            ):
+                dpg.draw_circle(
+                    center=_CENTER,
+                    radius=_MIN_R,
+                    color=_COLOR_STOPPED,
+                    fill=_COLOR_STOPPED,
+                    tag="gb_anim_circle",
+                )
+
+        # Phase label, centred under the circle.  Its width changes with the
+        # word, so the indent is recomputed whenever the text changes.
         dpg.add_text("", tag="gb_anim_phase_label", color=(180, 180, 180))
 
         dpg.add_spacer(height=12)
@@ -194,8 +203,7 @@ class GroupBreathAnimation:
 
         self._update_circle(radius)
 
-        if dpg.does_item_exist("gb_anim_phase_label"):
-            dpg.set_value("gb_anim_phase_label", self._phase)
+        self._set_phase_label(self._phase)
 
     # ── public control ────────────────────────────────────────────────────────
 
@@ -205,12 +213,30 @@ class GroupBreathAnimation:
         self._phase = "inhale"
         self._phase_t = 0.0
         self._update_circle(_MIN_R, stopped=True)
-        if dpg.does_item_exist("gb_anim_phase_label"):
-            dpg.set_value("gb_anim_phase_label", "")
+        self._set_phase_label("")
         if dpg.does_item_exist("gb_anim_start_stop"):
             dpg.configure_item("gb_anim_start_stop", label="Start")
 
     # ── private helpers ───────────────────────────────────────────────────────
+
+    def _set_phase_label(self, text: str) -> None:
+        """Write the phase word and keep it centred under the circle."""
+        tag = "gb_anim_phase_label"
+        if not dpg.does_item_exist(tag):
+            return
+        if dpg.get_value(tag) == text:
+            return
+        dpg.set_value(tag, text)
+        width = 0.0
+        try:
+            size = dpg.get_text_size(text) if text else None
+            if size:
+                width = float(size[0])
+        except Exception:
+            # get_text_size needs a rendered frame; fall back to left-aligned.
+            width = 0.0
+        centre = self._indent + _CANVAS_W / 2.0
+        dpg.configure_item(tag, indent=max(0, int(centre - width / 2.0)))
 
     def _update_circle(self, radius: float, stopped: bool = False) -> None:
         if not dpg.does_item_exist("gb_anim_circle"):
