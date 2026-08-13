@@ -594,3 +594,74 @@ def test_breath_guide_defaults_to_four_hold_beats():
     from breath_midi.ui.group_breath_animation import GroupBreathAnimation
 
     assert GroupBreathAnimation()._hold_beats == 4
+
+
+# ── Wi-Fi status icon ────────────────────────────────────────────────────────
+
+
+def test_wifi_icon_draws_arcs_and_a_dot(dpg_context):
+    from breath_midi.ui.widgets.wifi_icon import build_wifi_icon, dot_tag, ring_tag
+
+    with dpg.group(parent=dpg_context):
+        build_wifi_icon("w1", size=26)
+    for i in range(3):
+        assert dpg.does_item_exist(ring_tag("w1", i)), f"missing arc {i}"
+    assert dpg.does_item_exist(dot_tag("w1"))
+
+
+def test_wifi_colour_states(dpg_context):
+    """Red off target, green on it — no other steady states."""
+    from breath_midi.ui.widgets.wifi_icon import (
+        GREEN,
+        RED,
+        build_wifi_icon,
+        ring_tag,
+        set_wifi_color,
+        state_colour,
+    )
+
+    with dpg.group(parent=dpg_context):
+        build_wifi_icon("w2", size=26)
+
+    def arc_colour():
+        c = dpg.get_item_configuration(ring_tag("w2", 0))["color"]
+        return [round(v * 255) if v <= 1.0 else round(v) for v in c[:3]]
+
+    set_wifi_color("w2", state_colour(False))
+    assert arc_colour() == list(RED[:3]), "not on the target network should be red"
+    set_wifi_color("w2", state_colour(True))
+    assert arc_colour() == list(GREEN[:3]), "on the target network should be green"
+
+
+def test_wifi_flash_is_grey_then_yields():
+    """
+    The flash returns None once it is over, so the caller falls through to the
+    real red/green without having to track when the blink ended.
+    """
+    from breath_midi.ui.widgets.wifi_icon import (
+        FLASH_SECONDS,
+        GREY_OFF,
+        GREY_ON,
+        flash_colour,
+    )
+
+    now = 1000.0
+    until = now + FLASH_SECONDS
+    during = [flash_colour(now + t / 20.0, until) for t in range(20)]
+    assert all(c in (GREY_ON, GREY_OFF) for c in during), "flash must be grey"
+    assert GREY_ON in during and GREY_OFF in during, "flash must actually blink"
+    assert flash_colour(until, until) is None
+    assert flash_colour(until + 5, until) is None
+
+
+def test_wifi_icon_recolour_is_safe_when_absent(dpg_context):
+    """
+    A tab can be rebuilt between frames; recolouring must not raise.
+
+    The fixture is required: dpg.does_item_exist segfaults outright when there
+    is no context, so a "safe when missing" test without one crashes the
+    interpreter rather than failing.
+    """
+    from breath_midi.ui.widgets.wifi_icon import set_wifi_color
+
+    set_wifi_color("never_built", (1, 2, 3, 255))

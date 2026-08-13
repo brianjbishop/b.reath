@@ -13,12 +13,18 @@ from breath_midi.ui.qr import show_qr_popup
 # so the two always add up to the window and cannot drift apart.
 RIGHT_COL_W = 336
 
-_NET_OK = (0, 200, 110, 255)
-_NET_WRONG = (230, 150, 60, 255)
-_NET_UNKNOWN = (110, 110, 110, 255)
+_NET_ICON = 26
 from breath_midi.net_identity import NetworkWatcher
 from breath_midi.ui.widgets.hold_controls import build_hold_controls
 from breath_midi.ui.widgets.tray_icon import tray_button as _tray_button
+from breath_midi.ui.widgets.wifi_icon import (
+    FLASH_SECONDS,
+    build_wifi_icon,
+    flash_colour,
+    hovered as wifi_hovered,
+    set_wifi_color,
+    state_colour as wifi_state_colour,
+)
 
 
 class GroupBreathTab:
@@ -54,6 +60,8 @@ class GroupBreathTab:
         self._net = NetworkWatcher(expected_mac=net.expected_gateway_mac)
         self._net_label = net.label
         self._net.start()
+        self._flash_until: float = 0.0
+        self._mouse_was_down: bool = False
         # Bottom panel parents into the main column, not the outer container
         self._bottom_panel = GroupBreathBottomPanel(hub=hub, parent_tag="gb_main_col")
 
@@ -80,25 +88,13 @@ class GroupBreathTab:
                 dpg.add_spacer(width=20)
                 dpg.add_button(
                     label="Show QR",
+                    tag="gb_qr_btn",
                     callback=lambda: show_qr_popup(8001, "breath-choir"),
                 )
-                # Pushed to the right edge; recomputed on resize by the
-                # spacer's width, which is cheap enough to leave fixed.
-                dpg.add_spacer(width=-1, tag="gb_header_push")
-                dpg.add_text("", tag="gb_net_dot", color=_NET_UNKNOWN)
-                dpg.add_text("", tag="gb_net_label", color=(150, 150, 150))
-                dpg.add_button(
-                    label="Set",
-                    tag="gb_net_learn",
-                    small=True,
-                    callback=self._on_learn_network,
-                )
-                with dpg.tooltip("gb_net_learn"):
-                    dpg.add_text(
-                        "Remember this router as the performance network.\n"
-                        "Identified by gateway MAC — macOS will not report a\n"
-                        "Wi-Fi name without Location Services permission.",
-                    )
+                # Right-aligned: DPG has no alignment, so the spacer is resized
+                # each frame from the measured gap to the container's edge.
+                dpg.add_spacer(width=1, tag="gb_header_push")
+                build_wifi_icon("gb_net_icon", size=_NET_ICON)
 
             dpg.add_spacer(height=8)
 
@@ -181,25 +177,43 @@ class GroupBreathTab:
         self._animation.stop()
 
     def _on_learn_network(self) -> None:
-        mac = self._net.learn_current()
-        if mac:
+        """Clicking the icon adopts whatever router we are on right now."""
+        if self._net.learn_current():
+            self._flash_until = time.monotonic() + FLASH_SECONDS
             self._on_change()   # persist through main_window's autosave path
 
+    def _poll_net_click(self) -> None:
+        """
+        The icon is a drawlist, which has no callback of its own, so a click is
+        an edge on the mouse button while it happens to be hovered.
+        """
+        down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        if down and not self._mouse_was_down and wifi_hovered("gb_net_icon"):
+            self._on_learn_network()
+        self._mouse_was_down = down
+
+    def _right_align_header(self) -> None:
+        """Push the icon to the right edge of the header."""
+        if not (dpg.does_item_exist("gb_qr_btn") and dpg.does_item_exist("gb_container")):
+            return
+        try:
+            qr_x = dpg.get_item_rect_min("gb_qr_btn")[0]
+            qr_w = dpg.get_item_rect_size("gb_qr_btn")[0]
+            box_x = dpg.get_item_rect_min("gb_container")[0]
+            box_w = dpg.get_item_rect_size("gb_container")[0]
+        except Exception:
+            return
+        gap = (box_x + box_w) - (qr_x + qr_w) - _NET_ICON - 16
+        if gap >= 1 and dpg.does_item_exist("gb_header_push"):
+            dpg.configure_item("gb_header_push", width=int(gap))
+
     def _refresh_network(self) -> None:
-        identity = self._net.identity
-        if not identity.online:
-            dot, colour, text = "\u25cf", _NET_UNKNOWN, "no network"
-        elif not self._net.expected_mac:
-            dot, colour, text = "\u25cf", _NET_UNKNOWN, f"{identity.ip} (unset)"
-        elif self._net.on_expected_network:
-            dot, colour, text = "\u25cf", _NET_OK, f"{self._net_label}  {identity.ip}"
-        else:
-            dot, colour, text = "\u25cf", _NET_WRONG, f"wrong network  {identity.ip}"
-        if dpg.does_item_exist("gb_net_dot"):
-            dpg.set_value("gb_net_dot", dot)
-            dpg.configure_item("gb_net_dot", color=colour)
-        if dpg.does_item_exist("gb_net_label"):
-            dpg.set_value("gb_net_label", text)
+        self._poll_net_click()
+        self._right_align_header()
+        colour = flash_colour(time.monotonic(), self._flash_until)
+        if colour is None:
+            colour = wifi_state_colour(self._net.on_expected_network)
+        set_wifi_color("gb_net_icon", colour)
 
     def update(self) -> None:
         """Called every frame from main_window.tick()."""
