@@ -297,3 +297,53 @@ def test_an_explicit_pin_beats_stickiness(tmp_path):
     cfg = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
     pinned = replace(cfg.detection, phase_stickiness=1.0, min_hold_ms_override=900)
     assert pinned.min_hold_ms == 900
+
+
+# ── QR popup: the Metal texture crash ────────────────────────────────────────
+
+
+def test_qr_popup_never_deletes_its_texture():
+    """
+    Regression for a hard segfault, not an exception.
+
+    The popup used to delete its texture registry on close and rebuild it on
+    open, both from inside DPG callbacks — which run during a frame. The Metal
+    backend could still be holding the texture it had just been told to free,
+    and the app died in ImGui_ImplMetal_RenderDrawData -> setFragmentTexture:
+    -> objc_retain. Python never raised, so nothing reached breath.log; the
+    window simply vanished.
+
+    Reproduced by deleting inside a frame callback (exit 139) and fixed by
+    creating the texture once and replacing its pixels in place.
+    """
+    from breath_midi.ui import qr
+
+    dpg.create_context()
+    qr._reset_for_tests()
+    try:
+        dpg.create_viewport(title="t", width=500, height=400)
+        dpg.setup_dearpygui()
+        with dpg.window(tag="host"):
+            pass
+        dpg.show_viewport()
+
+        qr.show_qr_popup(8001, "breath-choir")
+        tex_id = dpg.get_alias_id(qr._QR_TEX_TAG)
+        assert dpg.does_item_exist(qr._QR_TEX_TAG)
+
+        for i in range(10):
+            qr._hide()
+            dpg.render_dearpygui_frame()
+            qr.show_qr_popup(8001 + i, "breath-choir")
+            dpg.render_dearpygui_frame()
+            # Same texture object throughout — never freed, so nothing dangles.
+            assert dpg.get_alias_id(qr._QR_TEX_TAG) == tex_id, (
+                "the texture was recreated; the renderer can dangle on the old one"
+            )
+
+        qr._hide()
+        assert not dpg.is_item_shown(qr._QR_WIN_TAG)
+        assert dpg.does_item_exist(qr._QR_TEX_TAG), "texture must survive a close"
+    finally:
+        dpg.destroy_context()
+        qr._reset_for_tests()
