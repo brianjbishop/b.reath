@@ -28,3 +28,8 @@
 
 # Claude local settings
 **/.claude/settings.local.json
+
+# Built macOS app wrapper — regenerate with breath-choir-aug-13/make_app.command.
+# Not committed: it embeds an absolute path to the local .venv, which is itself
+# ignored, so a checked-in bundle would be broken on any other machine.
+**/b.reath.app/

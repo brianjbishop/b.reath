@@ -12,6 +12,8 @@ Breath-driven MIDI tooling for the **TOTEM** iOS app: a **Breath → MIDI** cont
 | **`tests/`** | `python -m pytest tests/` — phase FSM, hold triggers, WebSocket fan-out, device-card UI. Needs `requirements-dev.txt`. |
 | **`totem_ble_viewer.py`** | Optional **viewer-only** script: same TOTEM BLE/OSC protocols, scrolling plot—useful when you only want to monitor breath, not drive MIDI. |
 | **`Start.command`** | Double-click launcher (macOS): `cd` here, activates `.venv`, runs `python -m breath_midi.app`. |
+| **`make_app.command`** | Builds `b.reath.app`, a wrapper bundle giving the app its name and icon in Finder. Run once; re-run after changing `assets/icon.png`. Not committed — it hardcodes this machine's `.venv` path. |
+| **`assets/icon.png`** | App icon. Also set as the macOS dock icon at runtime. |
 
 ## Prerequisites
 
