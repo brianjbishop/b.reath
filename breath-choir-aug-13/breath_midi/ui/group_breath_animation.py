@@ -22,6 +22,10 @@ _CENTER: tuple[float, float] = (100.0, 100.0)
 
 _COLOR_INHALE = (100, 180, 255, 220)
 _COLOR_EXHALE = (255, 140, 80, 220)
+# Holds are grey: the circle is frozen, and colouring it like a breath phase
+# implied movement that is not happening.  It also fell through to the
+# exhale branch before, so a hold looked exactly like breathing out.
+_COLOR_HOLD = (150, 150, 150, 220)
 _COLOR_STOPPED = (60, 60, 60, 220)
 
 
@@ -41,7 +45,7 @@ class GroupBreathAnimation:
     def __init__(self) -> None:
         self._bpm: float = 60.0
         self._inhale_beats: int = 4
-        self._hold_beats: int = 0
+        self._hold_beats: int = 4
         self._exhale_beats: int = 4
         self._running: bool = False
         self._phase: str = "inhale"   # "inhale" | "exhale"
@@ -245,8 +249,10 @@ class GroupBreathAnimation:
             color = _COLOR_STOPPED
         elif self._phase == "inhale":
             color = _COLOR_INHALE
-        else:
+        elif self._phase == "exhale":
             color = _COLOR_EXHALE
+        else:
+            color = _COLOR_HOLD
         dpg.configure_item("gb_anim_circle", radius=radius, fill=color, color=color)
 
     # ── callbacks ─────────────────────────────────────────────────────────────

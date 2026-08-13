@@ -555,3 +555,42 @@ def test_track_buttons_are_mirrored_arrows(dpg_context):
     assert hy > ty, "import arrow should point down into the tray"
     (hx, hy), (tx, ty) = head_and_tail("t_exp")
     assert hy < ty, "export arrow should point up out of the tray"
+
+
+def test_breath_guide_colours_holds_grey():
+    """
+    A frozen circle should not be coloured like a breath phase. Holds used to
+    fall through to the exhale branch, so holding looked like breathing out.
+    """
+    import dearpygui.dearpygui as _dpg
+    from breath_midi.ui.group_breath_animation import (
+        _COLOR_EXHALE,
+        _COLOR_HOLD,
+        _COLOR_INHALE,
+        GroupBreathAnimation,
+    )
+
+    _dpg.create_context()
+    try:
+        with _dpg.window(tag="gw"):
+            anim = GroupBreathAnimation()
+            anim.build(panel_width=336)
+
+        def colour_for(phase: str):
+            anim._phase = phase
+            anim._update_circle(30.0)
+            cfg = _dpg.get_item_configuration("gb_anim_circle")
+            return [round(c * 255) if c <= 1.0 else round(c) for c in cfg["fill"][:3]]
+
+        assert colour_for("inhale") == list(_COLOR_INHALE[:3])
+        assert colour_for("exhale") == list(_COLOR_EXHALE[:3])
+        assert colour_for("hold_full") == list(_COLOR_HOLD[:3])
+        assert colour_for("hold_empty") == list(_COLOR_HOLD[:3])
+    finally:
+        _dpg.destroy_context()
+
+
+def test_breath_guide_defaults_to_four_hold_beats():
+    from breath_midi.ui.group_breath_animation import GroupBreathAnimation
+
+    assert GroupBreathAnimation()._hold_beats == 4
