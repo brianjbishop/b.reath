@@ -3,6 +3,8 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
+from breath_midi.types import Phase
+from breath_midi.ui.widgets.arrow_label import add_arrow_label
 from breath_midi.ui.widgets.phase_rhombus import (
     build_phase_rhombus,
     refresh_phase_rhombus,
@@ -266,7 +268,7 @@ class GroupBreathBottomPanel:
 
             # Row 6: Inhale number (note or CC number)
             with dpg.group(horizontal=True):
-                dpg.add_text("In#:")
+                add_arrow_label(Phase.INHALE, size=16, tag=f"gb_lbl_in_{snap.uuid}")
                 dpg.add_input_int(
                     tag=f"gb_strip_inh_num_{snap.uuid}",
                     default_value=snap.inhale_note,
@@ -281,7 +283,7 @@ class GroupBreathBottomPanel:
 
             # Row 7: Exhale number (note or CC number)
             with dpg.group(horizontal=True):
-                dpg.add_text("Ex#:")
+                add_arrow_label(Phase.EXHALE, size=16, tag=f"gb_lbl_ex_{snap.uuid}")
                 dpg.add_input_int(
                     tag=f"gb_strip_exh_num_{snap.uuid}",
                     default_value=snap.exhale_note,
@@ -296,7 +298,7 @@ class GroupBreathBottomPanel:
 
             # Row 7: hold number. 0 = silent, so no enable checkbox.
             with dpg.group(horizontal=True):
-                dpg.add_text("Hd#:")
+                add_arrow_label(Phase.HOLD, size=16, tag=f"gb_lbl_hd_{snap.uuid}")
                 dpg.add_input_int(
                     tag=f"gb_strip_h_num_{snap.uuid}",
                     default_value=snap.hold_note,

@@ -3,7 +3,9 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
+from breath_midi.types import Phase
 from breath_midi.ui.qr import show_qr_popup
+from breath_midi.ui.widgets.arrow_label import add_arrow_label
 from breath_midi.ui.widgets.phase_rhombus import (
     build_phase_rhombus,
     refresh_phase_rhombus,
@@ -294,7 +296,7 @@ class EveryBreathTab:
                 dpg.add_spacer(width=4)
                 with dpg.group():
                     with dpg.group(horizontal=True):
-                        dpg.add_text("In", color=(200, 200, 200))
+                        add_arrow_label(Phase.INHALE, tag=f"eb_lbl_in_{snap.uuid}")
                         dpg.add_input_int(
                             tag=inote_tag,
                             default_value=snap.inhale_note,
@@ -307,7 +309,7 @@ class EveryBreathTab:
                             user_data=uuid,
                         )
                         dpg.add_spacer(width=6)
-                        dpg.add_text("Ex", color=(200, 200, 200))
+                        add_arrow_label(Phase.EXHALE, tag=f"eb_lbl_ex_{snap.uuid}")
                         dpg.add_input_int(
                             tag=enote_tag,
                             default_value=snap.exhale_note,
@@ -321,7 +323,7 @@ class EveryBreathTab:
                         )
                     # 0 means silent — no checkbox needed, the number says it.
                     with dpg.group(horizontal=True):
-                        dpg.add_text("Hold", color=(200, 200, 200))
+                        add_arrow_label(Phase.HOLD, tag=f"eb_lbl_hd_{snap.uuid}")
                         dpg.add_input_int(
                             tag=hnote_tag,
                             default_value=snap.hold_note,

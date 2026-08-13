@@ -241,3 +241,58 @@ def test_group_breath_has_collapsible_detection_and_guide(dpg_context):
     assert calls, "knob change did not call on_change"
     assert dpg.get_value("ui_hold_peak_band") == pytest.approx(0.70)
     K._reset_for_tests()
+
+
+# ── arrow labels on the note fields ──────────────────────────────────────────
+
+
+def test_arrow_labels_point_the_way_the_breath_moves(dpg_context):
+    """
+    ↗ inhale, → hold, ↘ exhale. Drawn rather than typed, because DPG's default
+    font atlas does not carry those codepoints.
+    """
+    from breath_midi.ui.widgets.arrow_label import add_arrow_label
+
+    with dpg.group(parent=dpg_context):
+        for p, tag in (
+            (Phase.INHALE, "lbl_in"),
+            (Phase.HOLD, "lbl_hd"),
+            (Phase.EXHALE, "lbl_ex"),
+        ):
+            add_arrow_label(p, tag=tag)
+
+    def tip_tail(tag):
+        cfg = dpg.get_item_configuration(tag)
+        return tuple(cfg["p1"])[:2], tuple(cfg["p2"])[:2]
+
+    # DPG draws the head at p1, so p1 is the tip.
+    (tx, ty), (bx, by) = tip_tail("lbl_in")
+    assert tx > bx and ty < by, "inhale should point up and to the right"
+
+    (tx, ty), (bx, by) = tip_tail("lbl_ex")
+    assert tx > bx and ty > by, "exhale should point down and to the right"
+
+    (tx, ty), (bx, by) = tip_tail("lbl_hd")
+    assert tx > bx and abs(ty - by) < 0.5, "hold should point level to the right"
+
+
+def test_card_uses_arrow_labels_not_text(dpg_context):
+    """The three note fields are labelled by arrows on a real device card."""
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.every_breath_tab import EveryBreathTab
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+    tab = EveryBreathTab(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    snap = snapshot()
+    tab._build_card(snap, parent=dpg_context, prev_uuid=None, next_uuid=None)
+    for tag in (
+        f"eb_lbl_in_{snap.uuid}",
+        f"eb_lbl_ex_{snap.uuid}",
+        f"eb_lbl_hd_{snap.uuid}",
+    ):
+        assert dpg.does_item_exist(tag), f"missing arrow label {tag}"
