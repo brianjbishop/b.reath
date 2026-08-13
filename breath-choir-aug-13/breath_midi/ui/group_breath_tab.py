@@ -8,6 +8,7 @@ from breath_midi.every_breath.hub import EveryBreathHub
 from breath_midi.ui.group_breath_animation import GroupBreathAnimation
 from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
 from breath_midi.ui.qr import show_qr_popup
+from breath_midi.ui.widgets.hold_controls import build_hold_controls
 
 
 class GroupBreathTab:
@@ -29,8 +30,11 @@ class GroupBreathTab:
     frame — a single bool toggle with no render-state rebuild cost.
     """
 
-    def __init__(self, hub: EveryBreathHub, parent_tag: str) -> None:
+    def __init__(self, hub: EveryBreathHub, parent_tag: str, on_change=None) -> None:
         self._hub = hub
+        # main_window's apply-from-UI hook; the detection controls live here but
+        # the config write still belongs to the window that owns the store.
+        self._on_change = on_change or (lambda *_: None)
         self._parent = parent_tag
         self._series_tags: dict[str, str] = {}   # uuid → series DPG tag
         self._theme_tags: dict[str, int] = {}    # uuid → theme DPG tag
@@ -110,14 +114,22 @@ class GroupBreathTab:
                     # Per-device strip panel (fills remaining height)
                     self._bottom_panel.build()
 
-                # Right: breath guide animation (fixed 220px)
+                # Right: collapsible Detection and Breath Guide sections.
                 with dpg.child_window(
                     tag="gb_anim_col",
-                    width=220,
+                    width=240,
                     height=-1,
                     border=True,
                 ):
-                    self._animation.build()
+                    with dpg.collapsing_header(
+                        label="Detection", tag="gb_detection_header", default_open=True
+                    ):
+                        build_hold_controls(self._on_change)
+                    dpg.add_spacer(height=6)
+                    with dpg.collapsing_header(
+                        label="Breath Guide", tag="gb_guide_header", default_open=True
+                    ):
+                        self._animation.build()
 
     # ── per-frame update ──────────────────────────────────────────────────────
 

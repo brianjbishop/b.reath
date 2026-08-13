@@ -38,9 +38,7 @@ class GroupBreathAnimation:
 
     def build(self) -> None:
         """Build all DPG widgets.  Called once inside the parent context."""
-        dpg.add_text("Breath Guide", color=(200, 200, 200))
-        dpg.add_separator()
-        dpg.add_spacer(height=8)
+        dpg.add_spacer(height=4)
 
         # ── Pulsing circle ────────────────────────────────────────────────────
         with dpg.drawlist(

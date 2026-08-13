@@ -185,3 +185,59 @@ def test_card_refresh_steps_through_phases(dpg_context):
     tab._build_card(snap, parent=dpg_context, prev_uuid=None, next_uuid=None)
     for phase in ALL_PHASES:
         tab._refresh_cards([snapshot(phase=phase)])
+
+
+# ── Group Breath side panel ──────────────────────────────────────────────────
+
+
+def test_group_breath_has_collapsible_detection_and_guide(dpg_context):
+    """
+    The hold controls live in the Group Breath side column, above the Breath
+    Guide, and both sections collapse. Built lazily like the rest of that tab,
+    so nothing here is exercised by simply launching the app.
+    """
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_tab import GroupBreathTab
+    from breath_midi.ui.widgets import knob as K
+
+    K._reset_for_tests()
+
+    class FakeHub:
+        registry = type(
+            "R", (), {"get": lambda self, u: None, "all_entries": lambda self: [],
+                      "connected_uuids": lambda self: set()},
+        )()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+        def get_ui_snapshot(self):
+            return []
+
+    calls: list[int] = []
+    tab = GroupBreathTab(  # type: ignore[arg-type]
+        hub=FakeHub(), parent_tag=dpg_context, on_change=lambda *_: calls.append(1)
+    )
+    tab.build()
+
+    assert dpg.does_item_exist("gb_detection_header"), "Detection section missing"
+    assert dpg.does_item_exist("gb_guide_header"), "Breath Guide section missing"
+
+    for tag in (
+        "ui_hold_enabled", "ui_min_hold_ms", "ui_hold_peak_band",
+        "ui_hold_valley_band", "ui_hold_still_tol", "ui_hold_exit_delta",
+    ):
+        assert dpg.does_item_exist(tag), f"missing control {tag}"
+
+    # Detection must come before the Breath Guide in the column.
+    children = dpg.get_item_children("gb_anim_col", 1)
+    assert children.index(dpg.get_alias_id("gb_detection_header")) < children.index(
+        dpg.get_alias_id("gb_guide_header")
+    ), "Detection should sit above the Breath Guide"
+
+    # Turning a knob must reach main_window's apply hook.
+    k = K._knobs["ui_hold_peak_band"]
+    K._set(k, 0.70)
+    assert calls, "knob change did not call on_change"
+    assert dpg.get_value("ui_hold_peak_band") == pytest.approx(0.70)
+    K._reset_for_tests()
