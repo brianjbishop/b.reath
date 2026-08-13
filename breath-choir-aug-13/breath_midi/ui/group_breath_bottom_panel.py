@@ -4,7 +4,12 @@ import dearpygui.dearpygui as dpg
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
 from breath_midi.types import Phase
-from breath_midi.ui.widgets.arrow_label import add_arrow_label
+from breath_midi.ui.widgets.arrow_label import (
+    DIM_COLOR,
+    add_arrow_label,
+    add_tolerance_label,
+    set_glyph_color,
+)
 from breath_midi.ui.widgets.phase_rhombus import (
     build_phase_rhombus,
     refresh_phase_rhombus,
@@ -17,6 +22,7 @@ _GATE_OPEN_COLOR = (0, 200, 100, 255)
 _GATE_OFF_COLOR = (45, 45, 45, 255)
 _GATE_LABEL_DIM = (90, 90, 90, 255)
 _GATE_LABEL_ON = (200, 200, 200, 255)
+_TOL_ON_COLOR = (200, 200, 200, 255)
 
 
 def _gate_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
@@ -27,6 +33,11 @@ def _gate_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
 
 def _gate_label_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
     return _GATE_LABEL_DIM if snap.cons_n == 0 else _GATE_LABEL_ON
+
+
+def _tol_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
+    """Tolerance only means anything while the gate is on, i.e. N > 0."""
+    return DIM_COLOR if snap.cons_n == 0 else _TOL_ON_COLOR
 
 
 class GroupBreathBottomPanel:
@@ -250,10 +261,12 @@ class GroupBreathBottomPanel:
 
             # Row 5: Consistency tolerance (period + peak, single knob)
             with dpg.group(horizontal=True):
-                dpg.add_text("Tol:")
+                add_tolerance_label(tag=f"gb_strip_tol_lbl_{snap.uuid}",
+                                    color=_tol_color(snap))
                 dpg.add_input_float(
                     tag=f"gb_strip_cons_tol_{snap.uuid}",
                     default_value=snap.cons_tolerance,
+                    enabled=snap.cons_n != 0,
                     width=55,
                     min_value=0.0,
                     max_value=1.0,
@@ -394,7 +407,14 @@ class GroupBreathBottomPanel:
                 if int(dpg.get_value(cons_n_tag)) != snap.cons_n:
                     dpg.set_value(cons_n_tag, snap.cons_n)
 
+            tol_lbl = f"gb_strip_tol_lbl_{uuid}"
+            if dpg.does_item_exist(tol_lbl):
+                set_glyph_color(tol_lbl, _tol_color(snap))
+
             cons_tol_tag = f"gb_strip_cons_tol_{uuid}"
+            if dpg.does_item_exist(cons_tol_tag):
+                if dpg.get_item_configuration(cons_tol_tag)["enabled"] != (snap.cons_n != 0):
+                    dpg.configure_item(cons_tol_tag, enabled=snap.cons_n != 0)
             if dpg.does_item_exist(cons_tol_tag):
                 if abs(float(dpg.get_value(cons_tol_tag)) - snap.cons_tolerance) > 1e-4:
                     dpg.set_value(cons_tol_tag, snap.cons_tolerance)

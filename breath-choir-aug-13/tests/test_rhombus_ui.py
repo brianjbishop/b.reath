@@ -296,3 +296,43 @@ def test_card_uses_arrow_labels_not_text(dpg_context):
         f"eb_lbl_hd_{snap.uuid}",
     ):
         assert dpg.does_item_exist(tag), f"missing arrow label {tag}"
+
+
+def test_tolerance_glyph_greys_out_when_n_is_zero(dpg_context):
+    """
+    Tolerance only means anything while the consistency gate is on. With N=0
+    the gate is bypassed, so both the glyph and the field must read as inert.
+    """
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+    from breath_midi.ui.widgets.arrow_label import DIM_COLOR
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+    with dpg.group(parent=dpg_context, tag="gb_strip_row"):
+        pass
+    panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    snap = snapshot(uuid="dev-tol", cons_n=0)
+    panel._build_strip(snap)
+
+    uuid = snap.uuid
+    glyph, field = f"gb_strip_tol_lbl_{uuid}", f"gb_strip_cons_tol_{uuid}"
+    assert dpg.does_item_exist(glyph), "tolerance glyph missing"
+
+    def glyph_colour():
+        child = dpg.get_item_children(glyph, 2)[0]
+        c = dpg.get_item_configuration(child)["color"]
+        return [round(v * 255) if v <= 1.0 else round(v) for v in c[:3]]
+
+    # N = 0: dim, and the field is not editable.
+    assert glyph_colour() == list(DIM_COLOR[:3])
+    assert dpg.get_item_configuration(field)["enabled"] is False
+
+    # N = 3: lit, and editable again.
+    panel._refresh_strips([snapshot(uuid=uuid, cons_n=3)])
+    assert glyph_colour() != list(DIM_COLOR[:3])
+    assert dpg.get_item_configuration(field)["enabled"] is True

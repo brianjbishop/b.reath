@@ -1,11 +1,12 @@
 """
-Small drawn arrows used as labels for the per-phase note fields.
+Small drawn glyphs used as labels in the device panels.
 
-    ↗  inhale     →  hold     ↘  exhale
+    ↗  inhale     →  hold     ↘  exhale     •<>•  tolerance
 
 Drawn rather than typed. Dear PyGui's default font atlas only rasterises basic
-Latin, so the Unicode arrows (U+2197, U+2192, U+2198) would come out blank —
-and loading a font just for three glyphs is a lot of machinery for this.
+Latin, so the Unicode arrows (U+2197, U+2192, U+2198, U+2194) would come out
+blank — and loading a font just for a handful of glyphs is a lot of machinery
+for this.
 """
 
 from __future__ import annotations
@@ -49,3 +50,49 @@ def add_arrow_label(
             size=max(3, int(size * 0.22)),
             **({"tag": tag} if tag else {}),
         )
+
+
+TOL_WIDTH = 30
+_DOT_R = 2.0
+DIM_COLOR = (95, 95, 95, 255)
+
+
+def add_tolerance_label(
+    width: int = TOL_WIDTH,
+    height: int = DEFAULT_SIZE,
+    color: tuple[int, int, int, int] = _LABEL_COLOR,
+    tag: str | None = None,
+) -> None:
+    """
+    Draw the tolerance glyph: two dots with a double-headed arrow between them.
+
+    It reads as "this much spread is allowed", which is what the consistency
+    tolerance means — how far a breath's period and peak may sit from the
+    rolling average and still count.
+
+    `tag` names a group holding every piece, so the whole glyph can be dimmed
+    in one call when the gate is off.
+    """
+    mid = height / 2.0
+    left, right = _DOT_R + 1, width - _DOT_R - 1
+    with dpg.drawlist(width=width, height=height, **({"tag": tag} if tag else {})):
+        dpg.draw_circle((left, mid), _DOT_R, fill=color, color=color)
+        dpg.draw_circle((right, mid), _DOT_R, fill=color, color=color)
+        # Two arrows out from the centre, so both ends carry a head.
+        centre = width / 2.0
+        dpg.draw_arrow((left + _DOT_R + 1, mid), (centre, mid),
+                       color=color, thickness=1, size=3)
+        dpg.draw_arrow((right - _DOT_R - 1, mid), (centre, mid),
+                       color=color, thickness=1, size=3)
+
+
+def set_glyph_color(tag: str, color: tuple[int, int, int, int]) -> None:
+    """Recolour every piece of a drawn glyph, e.g. to grey it out."""
+    if not dpg.does_item_exist(tag):
+        return
+    for child in dpg.get_item_children(tag, 2) or []:
+        cfg = dpg.get_item_configuration(child)
+        kwargs = {"color": color}
+        if "fill" in cfg:
+            kwargs["fill"] = color
+        dpg.configure_item(child, **kwargs)
