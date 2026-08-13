@@ -5,16 +5,20 @@ Replaces the pair of In/Ex squares.  The four breath phases sit at the points
 of a diamond and the cycle runs clockwise, so a performer's breathing reads as
 motion around a shape rather than two lamps blinking:
 
-             hold
+            inhale
                ◆
               / \\
-    inhale  ◆     ◆  exhale
+      hold  ◆     ◆  hold
               \\ /
                ◆
-             hold
+            exhale
 
-Only the active vertex is lit.  There is one HOLD phase, not two: the top and
-bottom vertices are the same state, and which one lights is decided by where
+The shape follows the breath: rising to the top on an inhale, falling to the
+bottom on an exhale, with the two holds either side.  Read clockwise, that is
+the whole cycle — in, hold, out, hold.
+
+Only the active vertex is lit.  There is one HOLD phase, not two: the left and
+right vertices are the same state, and which one lights is decided by where
 the breath actually is.  That keeps the cycle readable without inventing a
 distinction the detector does not make.  Vertices are created once and recoloured in
 place via configure_item — the same constraint the waveform plots are under
@@ -27,12 +31,12 @@ import dearpygui.dearpygui as dpg
 
 from breath_midi.types import Phase
 
-# Vertex order around the diamond, clockwise from the left point.
-# Positions around the diamond, clockwise from the left point.  HOLD appears
-# twice because the cycle passes through it twice.
-HOLD_TOP = "hold_top"
-HOLD_BOTTOM = "hold_bottom"
-_VERTICES: tuple[str, ...] = (Phase.INHALE.value, HOLD_TOP, Phase.EXHALE.value, HOLD_BOTTOM)
+# Clockwise from the top: inhale rises, holds sit either side, exhale falls.
+# HOLD appears twice because the cycle passes through it twice — once at the
+# peak and once at the valley.
+HOLD_PEAK = "hold_peak"
+HOLD_VALLEY = "hold_valley"
+_VERTICES: tuple[str, ...] = (Phase.INHALE.value, HOLD_PEAK, Phase.EXHALE.value, HOLD_VALLEY)
 
 _EDGE_COLOR = (70, 70, 70, 255)
 _GRAY_INACTIVE = (80, 80, 80, 255)
@@ -51,10 +55,10 @@ def _points(size: int) -> dict[str, tuple[float, float]]:
     c = size / 2.0
     r = c - _VERTEX_R - 1
     return {
-        Phase.INHALE.value: (c - r, c),
-        HOLD_TOP: (c, c - r),
-        Phase.EXHALE.value: (c + r, c),
-        HOLD_BOTTOM: (c, c + r),
+        Phase.INHALE.value: (c, c - r),   # top
+        HOLD_PEAK: (c + r, c),            # right — held at the top of a breath
+        Phase.EXHALE.value: (c, c + r),   # bottom
+        HOLD_VALLEY: (c - r, c),          # left — held at the bottom
     }
 
 
@@ -64,14 +68,14 @@ def _lit_vertex(
     """
     Which vertex the current phase lights.
 
-    A hold lights the top or the bottom depending on where the breath is — the
+    A hold lights the right or the left depending on where the breath is — the
     detector has one HOLD state, but the performer can see which end they are
     holding at.
 
     The split is the midpoint *between* the two bands rather than the peak
     threshold itself.  Once a hold has latched the value can drift, and with
     wide bands a peak hold that sagged slightly would otherwise jump to the
-    bottom vertex while the performer is still holding at the top.
+    other vertex while the performer is still holding at the top.
     """
     if phase is Phase.INHALE:
         return Phase.INHALE.value
@@ -79,7 +83,7 @@ def _lit_vertex(
         return Phase.EXHALE.value
     if phase is Phase.HOLD:
         midpoint = (peak_band + valley_band) / 2.0
-        return HOLD_TOP if amp >= midpoint else HOLD_BOTTOM
+        return HOLD_PEAK if amp >= midpoint else HOLD_VALLEY
     return None  # REST lights nothing
 
 

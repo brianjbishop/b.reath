@@ -15,6 +15,8 @@ from breath_midi.ui.widgets.phase_rhombus import (
     refresh_phase_rhombus,
 )
 
+_STRIP_W = 200
+_RHOMBUS_SIZE = 72
 _GRAY_INACTIVE = (80, 80, 80, 255)
 _GATE_OPEN_COLOR = (0, 200, 100, 255)
 # N=0 bypasses the gate entirely, so lighting it green would claim something is
@@ -25,14 +27,15 @@ _GATE_LABEL_ON = (200, 200, 200, 255)
 _TOL_ON_COLOR = (200, 200, 200, 255)
 
 
-def _gate_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
-    if snap.cons_n == 0:
-        return _GATE_OFF_COLOR
-    return _GATE_OPEN_COLOR if snap.consistent_gate_open else _GRAY_INACTIVE
-
-
-def _gate_label_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
-    return _GATE_LABEL_DIM if snap.cons_n == 0 else _GATE_LABEL_ON
+def _gate_theme(snap: DeviceUISnapshot) -> str:
+    """
+    Green when the gate is open, grey otherwise — and grey whenever N=0, since
+    the gate is bypassed then and green would claim something that is not
+    happening.
+    """
+    if snap.cons_n == 0 or not snap.consistent_gate_open:
+        return "theme_circle_gray"
+    return "theme_gate_green"
 
 
 def _tol_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
@@ -63,6 +66,10 @@ class GroupBreathBottomPanel:
         self._panel_tag = "gb_bottom_panel"
         self._strip_container_tag = "gb_strip_container"
         self._device_theme_tags: dict[str, int] = {}
+        # Handler registries are top-level items, so a grid rebuild has to
+        # delete them explicitly or they accumulate.
+        self._name_handler_tags: dict[str, int] = {}
+        self._edit_handler_tags: dict[str, int] = {}
 
 
     def _bands(self) -> tuple[float, float]:
@@ -122,6 +129,11 @@ class GroupBreathBottomPanel:
             if dpg.does_item_exist(theme_tag):
                 dpg.delete_item(theme_tag)
         self._device_theme_tags.clear()
+        for registry in (*self._name_handler_tags.values(), *self._edit_handler_tags.values()):
+            if dpg.does_item_exist(registry):
+                dpg.delete_item(registry)
+        self._name_handler_tags.clear()
+        self._edit_handler_tags.clear()
         dpg.delete_item(self._strip_container_tag, children_only=True)
         self._built_uuids = []
 
@@ -158,48 +170,61 @@ class GroupBreathBottomPanel:
         with dpg.child_window(
             tag=strip_tag,
             parent="gb_strip_row",
-            width=200,
+            width=_STRIP_W,
             height=-1,
             border=True,
         ):
-            # Row 1: Name in device color
+            # Row 1: name in the device colour, double-click to rename.
             dpg.add_text(
                 snap.name[:15],
                 tag=f"gb_strip_name_{snap.uuid}",
                 color=(r, g, b, 255),
             )
+            dpg.add_input_text(
+                tag=f"gb_strip_name_edit_{snap.uuid}",
+                default_value=snap.name,
+                width=_STRIP_W - 24,
+                show=False,
+                on_enter=True,
+                callback=lambda s_, a_, u_: self._on_name_commit(u_),
+                user_data=snap.uuid,
+            )
+            # Committing on focus loss as well, so clicking away saves rather
+            # than silently discarding the edit.
+            with dpg.item_handler_registry() as name_reg:
+                dpg.add_item_double_clicked_handler(
+                    callback=lambda s_, a_, u_: self._begin_rename(u_),
+                    user_data=snap.uuid,
+                )
+            dpg.bind_item_handler_registry(f"gb_strip_name_{snap.uuid}", name_reg)
+            self._name_handler_tags[snap.uuid] = name_reg
 
-            dpg.add_spacer(height=4)
+            with dpg.item_handler_registry() as edit_reg:
+                dpg.add_item_deactivated_handler(
+                    callback=lambda s_, a_, u_: self._on_name_commit(u_),
+                    user_data=snap.uuid,
+                )
+            dpg.bind_item_handler_registry(f"gb_strip_name_edit_{snap.uuid}", edit_reg)
+            self._edit_handler_tags[snap.uuid] = edit_reg
 
-            # Row 2: four-phase rhombus + gate dot
+            dpg.add_spacer(height=6)
+
+            # Row 2: the rhombus on its own, centred and large enough to read
+            # across a room.  The gate moved down beside Note.
             with dpg.group(horizontal=True):
+                dpg.add_spacer(width=(_STRIP_W - _RHOMBUS_SIZE) // 2 - 8)
                 build_phase_rhombus(
                     prefix=f"gb_strip_rh_{snap.uuid}",
                     phase=snap.phase,
                     color=snap.color,
                     active=True,
-                    size=44,
+                    size=_RHOMBUS_SIZE,
                     amp=snap.raw_amp,
                     peak_band=self._bands()[0],
                     valley_band=self._bands()[1],
                 )
-                dpg.add_spacer(width=6)
-                dpg.add_text("Gate", tag=f"gb_strip_gate_lbl_{snap.uuid}",
-                             color=_gate_label_color(snap))
-                gate_color = _gate_color(snap)
-                dpg.add_drawlist(
-                    width=14, height=14,
-                    tag=f"gb_strip_gate_{snap.uuid}",
-                )
-                dpg.draw_rectangle(
-                    (1, 1), (13, 13),
-                    fill=gate_color,
-                    color=gate_color,
-                    parent=f"gb_strip_gate_{snap.uuid}",
-                    tag=f"gb_strip_gate_rect_{snap.uuid}",
-                )
 
-            dpg.add_spacer(height=4)
+            dpg.add_spacer(height=6)
 
             # Row 3: Mute / Solo / Note-CC toggle
             with dpg.group(horizontal=True):
@@ -240,6 +265,18 @@ class GroupBreathBottomPanel:
                 dpg.bind_item_theme(
                     f"gb_strip_mode_toggle_{snap.uuid}",
                     "theme_circle_yellow",
+                )
+                dpg.add_spacer(width=4)
+                # Indicator, not a control — it reads state, clicking does
+                # nothing.  Styled like Note so the row is one visual family.
+                dpg.add_button(
+                    label="Gate",
+                    tag=f"gb_strip_gate_{snap.uuid}",
+                    width=44,
+                    height=24,
+                )
+                dpg.bind_item_theme(
+                    f"gb_strip_gate_{snap.uuid}", _gate_theme(snap)
                 )
 
             dpg.add_spacer(height=4)
@@ -350,10 +387,10 @@ class GroupBreathBottomPanel:
         for snap in snapshots:
             uuid = snap.uuid
             r, g, b = snap.color
-            gate_color = _gate_color(snap)
-
             name_tag = f"gb_strip_name_{uuid}"
-            if dpg.does_item_exist(name_tag):
+            edit_tag = f"gb_strip_name_edit_{uuid}"
+            editing = dpg.does_item_exist(edit_tag) and dpg.is_item_shown(edit_tag)
+            if dpg.does_item_exist(name_tag) and not editing:
                 if dpg.get_value(name_tag) != snap.name[:15]:
                     dpg.set_value(name_tag, snap.name[:15])
 
@@ -367,13 +404,9 @@ class GroupBreathBottomPanel:
                 valley_band=self._bands()[1],
             )
 
-            gate_lbl = f"gb_strip_gate_lbl_{uuid}"
-            if dpg.does_item_exist(gate_lbl):
-                dpg.configure_item(gate_lbl, color=_gate_label_color(snap))
-
-            gate_rect = f"gb_strip_gate_rect_{uuid}"
-            if dpg.does_item_exist(gate_rect):
-                dpg.configure_item(gate_rect, fill=gate_color, color=gate_color)
+            gate_btn = f"gb_strip_gate_{uuid}"
+            if dpg.does_item_exist(gate_btn):
+                dpg.bind_item_theme(gate_btn, _gate_theme(snap))
 
             device_theme = self._device_theme_tags.get(uuid)
             mute_tag = f"gb_strip_mute_{uuid}"
@@ -435,6 +468,30 @@ class GroupBreathBottomPanel:
                     dpg.set_value(h_num, snap.hold_note)
 
     # ── interaction callbacks ─────────────────────────────────────────────────
+
+    def _begin_rename(self, uuid: str) -> None:
+        """Double-click swaps the label for an input and focuses it."""
+        name_tag, edit_tag = f"gb_strip_name_{uuid}", f"gb_strip_name_edit_{uuid}"
+        entry = self._hub.registry.get(uuid)
+        if entry is None or not dpg.does_item_exist(edit_tag):
+            return
+        dpg.set_value(edit_tag, entry.name)
+        dpg.configure_item(name_tag, show=False)
+        dpg.configure_item(edit_tag, show=True)
+        dpg.focus_item(edit_tag)
+
+    def _on_name_commit(self, uuid: str) -> None:
+        """Save and swap back. Fires on Enter and on losing focus."""
+        name_tag, edit_tag = f"gb_strip_name_{uuid}", f"gb_strip_name_edit_{uuid}"
+        if not dpg.does_item_exist(edit_tag) or not dpg.is_item_shown(edit_tag):
+            return
+        new_name = str(dpg.get_value(edit_tag) or "").strip()
+        if new_name:
+            self._hub.set_name(uuid, new_name)
+            if dpg.does_item_exist(name_tag):
+                dpg.set_value(name_tag, new_name[:15])
+        dpg.configure_item(edit_tag, show=False)
+        dpg.configure_item(name_tag, show=True)
 
     def _on_mute(self, uuid: str) -> None:
         entry = self._hub.registry.get(uuid)

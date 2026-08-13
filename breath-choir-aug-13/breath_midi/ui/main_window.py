@@ -199,6 +199,14 @@ class BreathMidiDpgUI:
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 7)
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding,  0, 0)
 
+        with dpg.theme(tag="theme_gate_green"):
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Button,        (  0, 190,  95, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,  (  0, 190,  95, 180))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,   (  0, 190,  95, 255))
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 7)
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding,  0, 0)
+
         with dpg.theme(tag="theme_circle_gray"):
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_color(dpg.mvThemeCol_Button,        ( 80,  80,  80, 255))

@@ -15,8 +15,8 @@ import pytest
 from breath_midi.every_breath.hub import DeviceUISnapshot
 from breath_midi.types import Phase
 from breath_midi.ui.widgets.phase_rhombus import (
-    HOLD_BOTTOM,
-    HOLD_TOP,
+    HOLD_PEAK,
+    HOLD_VALLEY,
     build_phase_rhombus,
     refresh_phase_rhombus,
     vertex_tag,
@@ -61,7 +61,7 @@ def snapshot(uuid: str = "dev-1", phase: Phase = Phase.REST, **kw) -> DeviceUISn
 def test_rhombus_creates_all_four_vertices(dpg_context):
     with dpg.group(parent=dpg_context):
         build_phase_rhombus("t1", Phase.INHALE, (200, 100, 50), active=True)
-    for v in (Phase.INHALE, HOLD_TOP, Phase.EXHALE, HOLD_BOTTOM):
+    for v in (Phase.INHALE, HOLD_PEAK, Phase.EXHALE, HOLD_VALLEY):
         assert dpg.does_item_exist(vertex_tag("t1", v)), f"missing vertex for {v}"
     # REST is not on the diamond — it is the cold-start state.
     assert not dpg.does_item_exist(vertex_tag("t1", Phase.REST))
@@ -73,8 +73,8 @@ def test_rhombus_creates_all_four_vertices(dpg_context):
         (Phase.REST, 0.5, None),
         (Phase.INHALE, 0.5, Phase.INHALE.value),
         (Phase.EXHALE, 0.5, Phase.EXHALE.value),
-        (Phase.HOLD, 0.95, HOLD_TOP),
-        (Phase.HOLD, 0.05, HOLD_BOTTOM),
+        (Phase.HOLD, 0.95, HOLD_PEAK),   # held at the top -> right vertex
+        (Phase.HOLD, 0.05, HOLD_VALLEY), # held at the bottom -> left vertex
     ],
 )
 def test_hold_lights_top_or_bottom_by_amplitude(dpg_context, phase, amp, expected):
@@ -86,7 +86,7 @@ def test_hold_lights_top_or_bottom_by_amplitude(dpg_context, phase, amp, expecte
 
     lit = [
         v
-        for v in (Phase.INHALE.value, HOLD_TOP, Phase.EXHALE.value, HOLD_BOTTOM)
+        for v in (Phase.INHALE.value, HOLD_PEAK, Phase.EXHALE.value, HOLD_VALLEY)
         if _is_device_color(vertex_tag("t2", v), color)
     ]
     assert lit == ([] if expected is None else [expected])
@@ -103,7 +103,7 @@ def test_paused_device_dims_every_vertex(dpg_context):
     color = (200, 100, 50)
     with dpg.group(parent=dpg_context):
         build_phase_rhombus("t3", Phase.INHALE, color, active=False)
-    for v in (Phase.INHALE.value, HOLD_TOP, Phase.EXHALE.value, HOLD_BOTTOM):
+    for v in (Phase.INHALE.value, HOLD_PEAK, Phase.EXHALE.value, HOLD_VALLEY):
         assert not _is_device_color(vertex_tag("t3", v), color)
 
 
@@ -136,7 +136,7 @@ def test_every_breath_card_builds_with_holds(dpg_context):
     for tag in (f"eb_inote_{uuid}", f"eb_enote_{uuid}", f"eb_hnote_{uuid}"):
         assert dpg.does_item_exist(tag), f"missing card control {tag}"
     assert dpg.get_value(f"eb_hnote_{uuid}") == 70
-    assert dpg.does_item_exist(vertex_tag(f"eb_rh_{uuid}", HOLD_TOP))
+    assert dpg.does_item_exist(vertex_tag(f"eb_rh_{uuid}", HOLD_PEAK))
 
 
 def test_group_breath_strip_builds_with_holds(dpg_context):
@@ -162,7 +162,7 @@ def test_group_breath_strip_builds_with_holds(dpg_context):
     uuid = snap.uuid
     for tag in (f"gb_strip_h_num_{uuid}", f"gb_strip_inh_num_{uuid}"):
         assert dpg.does_item_exist(tag), f"missing strip control {tag}"
-    assert dpg.does_item_exist(vertex_tag(f"gb_strip_rh_{uuid}", HOLD_BOTTOM))
+    assert dpg.does_item_exist(vertex_tag(f"gb_strip_rh_{uuid}", HOLD_VALLEY))
 
     for phase in ALL_PHASES:
         panel._refresh_strips([snapshot(uuid=uuid, phase=phase)])
@@ -336,3 +336,123 @@ def test_tolerance_glyph_greys_out_when_n_is_zero(dpg_context):
     panel._refresh_strips([snapshot(uuid=uuid, cons_n=3)])
     assert glyph_colour() != list(DIM_COLOR[:3])
     assert dpg.get_item_configuration(field)["enabled"] is True
+
+
+def test_rhombus_orientation_inhale_top_exhale_bottom(dpg_context):
+    """
+    Rising to the top, falling to the bottom, holds either side. Read
+    clockwise that is the whole cycle: in, hold, out, hold.
+    """
+    from breath_midi.ui.widgets.phase_rhombus import _points
+
+    size = 60
+    c = size / 2.0
+    pts = _points(size)
+    assert pts[Phase.INHALE.value][1] < c, "inhale should be at the top"
+    assert pts[Phase.EXHALE.value][1] > c, "exhale should be at the bottom"
+    assert pts[HOLD_PEAK][0] > c and abs(pts[HOLD_PEAK][1] - c) < 0.5, \
+        "peak hold should be the right vertex"
+    assert pts[HOLD_VALLEY][0] < c and abs(pts[HOLD_VALLEY][1] - c) < 0.5, \
+        "valley hold should be the left vertex"
+
+
+def test_strip_gate_is_a_button_beside_note(dpg_context):
+    """Gate moved out of the rhombus row and in with M / S / Note."""
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+    for tag in ("theme_circle_gray", "theme_circle_yellow", "theme_gate_green"):
+        with dpg.theme(tag=tag):
+            pass
+    with dpg.group(parent=dpg_context, tag="gb_strip_row"):
+        pass
+
+    panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    snap = snapshot(uuid="dev-g", cons_n=3, consistent_gate_open=True)
+    panel._build_strip(snap)
+
+    gate = f"gb_strip_gate_{snap.uuid}"
+    assert dpg.does_item_exist(gate)
+    assert dpg.get_item_configuration(gate)["label"] == "Gate"
+    # The old dot is gone.
+    assert not dpg.does_item_exist(f"gb_strip_gate_rect_{snap.uuid}")
+
+
+def test_strip_name_is_editable_on_double_click(dpg_context):
+    """Double-click swaps the label for an input; Enter commits the new name."""
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+
+    renamed: list[tuple[str, str]] = []
+
+    class FakeRegistry:
+        def get(self, uuid):
+            return type("E", (), {"name": "Performer 1"})()
+
+    class FakeHub:
+        registry = FakeRegistry()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+        def set_name(self, uuid, name):
+            renamed.append((uuid, name))
+
+    for tag in ("theme_circle_gray", "theme_circle_yellow", "theme_gate_green"):
+        with dpg.theme(tag=tag):
+            pass
+    with dpg.group(parent=dpg_context, tag="gb_strip_row"):
+        pass
+
+    panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    snap = snapshot(uuid="dev-n")
+    panel._build_strip(snap)
+    label, editor = f"gb_strip_name_{snap.uuid}", f"gb_strip_name_edit_{snap.uuid}"
+
+    # Starts as a label.
+    assert dpg.is_item_shown(label) and not dpg.is_item_shown(editor)
+
+    panel._begin_rename(snap.uuid)
+    assert dpg.is_item_shown(editor) and not dpg.is_item_shown(label)
+
+    dpg.set_value(editor, "Alto 2")
+    panel._on_name_commit(snap.uuid)
+    assert renamed == [(snap.uuid, "Alto 2")]
+    assert dpg.is_item_shown(label) and not dpg.is_item_shown(editor)
+    assert dpg.get_value(label) == "Alto 2"
+
+
+def test_blank_rename_is_ignored(dpg_context):
+    """An empty box should not wipe the device name."""
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+
+    renamed: list = []
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: type("E", (), {"name": "X"})()})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+        def set_name(self, uuid, name):
+            renamed.append(name)
+
+    for tag in ("theme_circle_gray", "theme_circle_yellow", "theme_gate_green"):
+        with dpg.theme(tag=tag):
+            pass
+    with dpg.group(parent=dpg_context, tag="gb_strip_row"):
+        pass
+    panel = GroupBreathBottomPanel(FakeHub(), dpg_context)  # type: ignore[arg-type]
+    snap = snapshot(uuid="dev-b")
+    panel._build_strip(snap)
+    panel._begin_rename(snap.uuid)
+    dpg.set_value(f"gb_strip_name_edit_{snap.uuid}", "   ")
+    panel._on_name_commit(snap.uuid)
+    assert renamed == []
