@@ -62,6 +62,7 @@ class GroupBreathTab:
         self._net.start()
         self._flash_until: float = 0.0
         self._mouse_was_down: bool = False
+        self._header_gap: int = -1
         # Bottom panel parents into the main column, not the outer container
         self._bottom_panel = GroupBreathBottomPanel(hub=hub, parent_tag="gb_main_col")
 
@@ -192,20 +193,31 @@ class GroupBreathTab:
             self._on_learn_network()
         self._mouse_was_down = down
 
+    # Right edge inset: the window and the container each add padding between
+    # the viewport edge and the header's usable width.
+    _HEADER_INSET = 26
+
     def _right_align_header(self) -> None:
-        """Push the icon to the right edge of the header."""
-        if not (dpg.does_item_exist("gb_qr_btn") and dpg.does_item_exist("gb_container")):
+        """
+        Push the icon to the right edge of the header.
+
+        Measured against the viewport rather than the container: a child_window
+        reports rect_size but *not* rect_min, so asking for its left edge raises
+        KeyError — which, inside the per-frame update, silently left the spacer
+        at its 1px default and the icon sitting next to the QR button.
+        """
+        if not (dpg.does_item_exist("gb_qr_btn") and dpg.does_item_exist("gb_header_push")):
             return
         try:
-            qr_x = dpg.get_item_rect_min("gb_qr_btn")[0]
-            qr_w = dpg.get_item_rect_size("gb_qr_btn")[0]
-            box_x = dpg.get_item_rect_min("gb_container")[0]
-            box_w = dpg.get_item_rect_size("gb_container")[0]
-        except Exception:
+            state = dpg.get_item_state("gb_qr_btn")
+            qr_right = state["rect_min"][0] + state["rect_size"][0]
+            right_edge = dpg.get_viewport_client_width() - self._HEADER_INSET
+        except (KeyError, TypeError, IndexError):
             return
-        gap = (box_x + box_w) - (qr_x + qr_w) - _NET_ICON - 16
-        if gap >= 1 and dpg.does_item_exist("gb_header_push"):
-            dpg.configure_item("gb_header_push", width=int(gap))
+        gap = int(right_edge - qr_right - _NET_ICON)
+        if gap != self._header_gap and gap >= 1:
+            self._header_gap = gap
+            dpg.configure_item("gb_header_push", width=gap)
 
     def _refresh_network(self) -> None:
         self._poll_net_click()
