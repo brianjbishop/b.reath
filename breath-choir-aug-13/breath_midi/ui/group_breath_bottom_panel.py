@@ -10,6 +10,21 @@ from breath_midi.ui.widgets.phase_rhombus import (
 
 _GRAY_INACTIVE = (80, 80, 80, 255)
 _GATE_OPEN_COLOR = (0, 200, 100, 255)
+# N=0 bypasses the gate entirely, so lighting it green would claim something is
+# happening that is not. Draw it as off, and dim its label to match.
+_GATE_OFF_COLOR = (45, 45, 45, 255)
+_GATE_LABEL_DIM = (90, 90, 90, 255)
+_GATE_LABEL_ON = (200, 200, 200, 255)
+
+
+def _gate_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
+    if snap.cons_n == 0:
+        return _GATE_OFF_COLOR
+    return _GATE_OPEN_COLOR if snap.consistent_gate_open else _GRAY_INACTIVE
+
+
+def _gate_label_color(snap: DeviceUISnapshot) -> tuple[int, int, int, int]:
+    return _GATE_LABEL_DIM if snap.cons_n == 0 else _GATE_LABEL_ON
 
 
 class GroupBreathBottomPanel:
@@ -30,12 +45,20 @@ class GroupBreathBottomPanel:
 
     def __init__(self, hub: EveryBreathHub, parent_tag: str) -> None:
         self._hub = hub
-        self._peak_band = float(hub._config.detection.hold_peak_band)
         self._parent = parent_tag
         self._built_uuids: list[str] = []
         self._panel_tag = "gb_bottom_panel"
         self._strip_container_tag = "gb_strip_container"
         self._device_theme_tags: dict[str, int] = {}
+
+
+    def _bands(self) -> tuple[float, float]:
+        """
+        Current (peak, valley) bands, read live so the rhombus tracks the
+        Detection tab while you are tuning rather than needing a restart.
+        """
+        d = self._hub._config.detection
+        return float(d.hold_peak_band), float(d.hold_valley_band)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -144,11 +167,13 @@ class GroupBreathBottomPanel:
                     active=True,
                     size=44,
                     amp=snap.raw_amp,
-                    peak_band=self._peak_band,
+                    peak_band=self._bands()[0],
+                    valley_band=self._bands()[1],
                 )
                 dpg.add_spacer(width=6)
-                dpg.add_text("Gate")
-                gate_color = _GATE_OPEN_COLOR if snap.consistent_gate_open else _GRAY_INACTIVE
+                dpg.add_text("Gate", tag=f"gb_strip_gate_lbl_{snap.uuid}",
+                             color=_gate_label_color(snap))
+                gate_color = _gate_color(snap)
                 dpg.add_drawlist(
                     width=14, height=14,
                     tag=f"gb_strip_gate_{snap.uuid}",
@@ -310,7 +335,7 @@ class GroupBreathBottomPanel:
         for snap in snapshots:
             uuid = snap.uuid
             r, g, b = snap.color
-            gate_color = _GATE_OPEN_COLOR if snap.consistent_gate_open else _GRAY_INACTIVE
+            gate_color = _gate_color(snap)
 
             name_tag = f"gb_strip_name_{uuid}"
             if dpg.does_item_exist(name_tag):
@@ -323,8 +348,13 @@ class GroupBreathBottomPanel:
                 color=snap.color,
                 active=True,
                 amp=snap.raw_amp,
-                peak_band=self._peak_band,
+                peak_band=self._bands()[0],
+                valley_band=self._bands()[1],
             )
+
+            gate_lbl = f"gb_strip_gate_lbl_{uuid}"
+            if dpg.does_item_exist(gate_lbl):
+                dpg.configure_item(gate_lbl, color=_gate_label_color(snap))
 
             gate_rect = f"gb_strip_gate_rect_{uuid}"
             if dpg.does_item_exist(gate_rect):

@@ -42,7 +42,9 @@ class DeviceEntry:
     soloed: bool = False
     cc_mode: bool = False
     cc_value: int = 127
-    cons_n: int = 3
+    # 0 = gate off. Consistency gating is opt-in; most pieces want every
+    # breath to sound, and a closed gate is confusing to debug live.
+    cons_n: int = 0
     cons_tolerance: float = 0.30
     # 0 means the hold is silent — it releases whatever the inhale or exhale was
     # holding down and plays nothing.  That is the default, and it is why there

@@ -58,20 +58,28 @@ def _points(size: int) -> dict[str, tuple[float, float]]:
     }
 
 
-def _lit_vertex(phase: Phase, amp: float, peak_band: float) -> str | None:
+def _lit_vertex(
+    phase: Phase, amp: float, peak_band: float, valley_band: float = 0.0
+) -> str | None:
     """
     Which vertex the current phase lights.
 
     A hold lights the top or the bottom depending on where the breath is — the
     detector has one HOLD state, but the performer can see which end they are
     holding at.
+
+    The split is the midpoint *between* the two bands rather than the peak
+    threshold itself.  Once a hold has latched the value can drift, and with
+    wide bands a peak hold that sagged slightly would otherwise jump to the
+    bottom vertex while the performer is still holding at the top.
     """
     if phase is Phase.INHALE:
         return Phase.INHALE.value
     if phase is Phase.EXHALE:
         return Phase.EXHALE.value
     if phase is Phase.HOLD:
-        return HOLD_TOP if amp >= peak_band else HOLD_BOTTOM
+        midpoint = (peak_band + valley_band) / 2.0
+        return HOLD_TOP if amp >= midpoint else HOLD_BOTTOM
     return None  # REST lights nothing
 
 
@@ -83,10 +91,11 @@ def build_phase_rhombus(
     size: int = DEFAULT_SIZE,
     amp: float = 0.0,
     peak_band: float = 0.5,
+    valley_band: float = 0.5,
 ) -> None:
     """Create the diamond inside the current DPG container."""
     pts = _points(size)
-    lit = _lit_vertex(phase, amp, peak_band)
+    lit = _lit_vertex(phase, amp, peak_band, valley_band)
     with dpg.drawlist(width=size, height=size):
         # Edges first so the vertices draw on top of them.
         for i, v in enumerate(_VERTICES):
@@ -109,9 +118,10 @@ def refresh_phase_rhombus(
     active: bool,
     amp: float = 0.0,
     peak_band: float = 0.5,
+    valley_band: float = 0.5,
 ) -> None:
     """Recolour the vertices for the current phase.  Safe to call every frame."""
-    lit = _lit_vertex(phase, amp, peak_band)
+    lit = _lit_vertex(phase, amp, peak_band, valley_band)
     for v in _VERTICES:
         tag = vertex_tag(prefix, v)
         if dpg.does_item_exist(tag):

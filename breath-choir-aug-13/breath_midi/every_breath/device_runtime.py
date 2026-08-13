@@ -48,7 +48,7 @@ class DeviceRuntime:
         self._cons = ConsistentBreathsTrigger()
         self._cc_mode: bool = False
         self._gate_open: bool = True   # starts open; closes only after streak is lost
-        self._cons_n: int = 3
+        self._cons_n: int = 0
         self._cons_tolerance: float = 0.30
         # Enable consistent_breaths gating with defaults
         t = config.triggers

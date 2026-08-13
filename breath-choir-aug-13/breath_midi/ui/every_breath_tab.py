@@ -48,9 +48,6 @@ class EveryBreathTab:
 
     def __init__(self, hub: EveryBreathHub, parent_tag: int | str) -> None:
         self._hub = hub
-        # Same threshold the detector uses, so the lit vertex agrees with the
-        # phase rather than telling a slightly different story.
-        self._peak_band = float(hub._config.detection.hold_peak_band)
         self._parent = parent_tag
         # None = never built yet. Using None (not []) as the sentinel so that
         # the first update() call always triggers _rebuild_grid even when there
@@ -62,6 +59,15 @@ class EveryBreathTab:
         self._wave_theme_tags: dict[str, int] = {}
         # uuid → DPG theme tag for M/S button active color (device color).
         self._device_theme_tags: dict[str, int] = {}
+
+
+    def _bands(self) -> tuple[float, float]:
+        """
+        Current (peak, valley) bands, read live so the rhombus tracks the
+        Detection tab while you are tuning rather than needing a restart.
+        """
+        d = self._hub._config.detection
+        return float(d.hold_peak_band), float(d.hold_valley_band)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -282,7 +288,8 @@ class EveryBreathTab:
                     color=snap.color,
                     active=snap.active,
                     amp=snap.raw_amp,
-                    peak_band=self._peak_band,
+                    peak_band=self._bands()[0],
+                    valley_band=self._bands()[1],
                 )
                 dpg.add_spacer(width=4)
                 with dpg.group():
@@ -392,7 +399,8 @@ class EveryBreathTab:
                 color=snap.color,
                 active=snap.active,
                 amp=snap.raw_amp,
-                peak_band=self._peak_band,
+                peak_band=self._bands()[0],
+                valley_band=self._bands()[1],
             )
 
             device_theme = self._device_theme_tags.get(snap.uuid)

@@ -562,7 +562,55 @@ class BreathMidiDpgUI:
         # slow deep breath as a hold; "Slope rest" sets how still the breath
         # must be over the window.
         dpg.add_text(
-            "Lower = more sensitive; below ~800ms slow\nbreathing can register as a hold.",
+            "Rule of thumb: about 1/8 of the breath cycle.\nToo low and slow breathing reads as holding.",
+            color=(150, 150, 150),
+        )
+        dpg.add_text("Peak band (hold above)")
+        dpg.add_input_float(
+            tag="ui_hold_peak_band",
+            width=140,
+            default_value=0.80,
+            min_value=0.0,
+            max_value=1.0,
+            format="%.2f",
+            callback=self._cb,
+        )
+        dpg.add_text("Valley band (hold below)")
+        dpg.add_input_float(
+            tag="ui_hold_valley_band",
+            width=140,
+            default_value=0.20,
+            min_value=0.0,
+            max_value=1.0,
+            format="%.2f",
+            callback=self._cb,
+        )
+        dpg.add_text(
+            "Widen these (lower peak / raise valley) if\nholds are being missed.",
+            color=(150, 150, 150),
+        )
+        dpg.add_text("Hold stillness tol")
+        dpg.add_input_float(
+            tag="ui_hold_still_tol",
+            width=140,
+            default_value=0.05,
+            min_value=0.0,
+            max_value=1.0,
+            format="%.3f",
+            callback=self._cb,
+        )
+        dpg.add_text("Hold exit delta")
+        dpg.add_input_float(
+            tag="ui_hold_exit_delta",
+            width=140,
+            default_value=0.15,
+            min_value=0.0,
+            max_value=1.0,
+            format="%.3f",
+            callback=self._cb,
+        )
+        dpg.add_text(
+            "How far the breath must move to end a hold.",
             color=(150, 150, 150),
         )
 
@@ -1062,6 +1110,10 @@ class BreathMidiDpgUI:
                 min_phase_ms=int(dpg.get_value("ui_min_phase_ms")),
                 hold_enabled=bool(dpg.get_value("ui_hold_enabled")),
                 min_hold_ms=int(dpg.get_value("ui_min_hold_ms")),
+                hold_peak_band=float(dpg.get_value("ui_hold_peak_band")),
+                hold_valley_band=float(dpg.get_value("ui_hold_valley_band")),
+                hold_still_tol=float(dpg.get_value("ui_hold_still_tol")),
+                hold_exit_delta=float(dpg.get_value("ui_hold_exit_delta")),
             )
             port_name = str(dpg.get_value("ui_midi_port") or "").strip()
             midi_cfg = replace(
@@ -1160,6 +1212,10 @@ class BreathMidiDpgUI:
             dpg.set_value("ui_min_phase_ms", int(cfg.detection.min_phase_ms))
             dpg.set_value("ui_hold_enabled", bool(cfg.detection.hold_enabled))
             dpg.set_value("ui_min_hold_ms", int(cfg.detection.min_hold_ms))
+            dpg.set_value("ui_hold_peak_band", float(cfg.detection.hold_peak_band))
+            dpg.set_value("ui_hold_valley_band", float(cfg.detection.hold_valley_band))
+            dpg.set_value("ui_hold_still_tol", float(cfg.detection.hold_still_tol))
+            dpg.set_value("ui_hold_exit_delta", float(cfg.detection.hold_exit_delta))
 
             ports = MidoMidiSink.list_outputs()
             if not ports:
