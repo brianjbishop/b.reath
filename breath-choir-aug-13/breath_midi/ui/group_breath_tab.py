@@ -14,8 +14,16 @@ from breath_midi.ui.qr import show_qr_popup
 RIGHT_COL_W = 336
 
 _NET_ICON = 26
+_QR_ICON = 26
 from breath_midi.net_identity import NetworkWatcher
 from breath_midi.ui.widgets.hold_controls import build_hold_controls
+from breath_midi.ui.widgets.qr_icon import (
+    HOVER as QR_HOVER,
+    IDLE as QR_IDLE,
+    build_qr_icon,
+    hovered as qr_hovered,
+    set_qr_color,
+)
 from breath_midi.ui.widgets.tray_icon import tray_button as _tray_button
 from breath_midi.ui.widgets.wifi_icon import (
     FLASH_SECONDS,
@@ -78,20 +86,12 @@ class GroupBreathTab:
             height=-1,
         ):
             # ── Header ────────────────────────────────────────────────────────
+            # Two icons and nothing else: join on the left, network state on the
+            # right. The device count and the port lived here as text, but the
+            # strip panel below already lists every device by name, and the port
+            # is not something anyone can act on mid-performance.
             with dpg.group(horizontal=True, tag="gb_header"):
-                dpg.add_text("Group Breath", color=(200, 200, 200))
-                dpg.add_spacer(width=20)
-                dpg.add_text(
-                    "Waiting for devices on port 8001",
-                    tag="gb_status_text",
-                    color=(120, 120, 120),
-                )
-                dpg.add_spacer(width=20)
-                dpg.add_button(
-                    label="Show QR",
-                    tag="gb_qr_btn",
-                    callback=lambda: show_qr_popup(8001, "breath-choir"),
-                )
+                build_qr_icon("gb_qr_icon", size=_QR_ICON)
                 # Right-aligned: DPG has no alignment, so the spacer is resized
                 # each frame from the measured gap to the container's edge.
                 dpg.add_spacer(width=1, tag="gb_header_push")
@@ -183,14 +183,17 @@ class GroupBreathTab:
             self._flash_until = time.monotonic() + FLASH_SECONDS
             self._on_change()   # persist through main_window's autosave path
 
-    def _poll_net_click(self) -> None:
+    def _poll_header_clicks(self) -> None:
         """
-        The icon is a drawlist, which has no callback of its own, so a click is
-        an edge on the mouse button while it happens to be hovered.
+        Both header icons are drawlists, which have no callback of their own, so
+        a click is an edge on the mouse button while one happens to be hovered.
         """
         down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        if down and not self._mouse_was_down and wifi_hovered("gb_net_icon"):
+        edge = down and not self._mouse_was_down
+        if edge and wifi_hovered("gb_net_icon"):
             self._on_learn_network()
+        elif edge and qr_hovered("gb_qr_icon"):
+            show_qr_popup(8001, self._net_label)
         self._mouse_was_down = down
 
     # Right edge inset: the window and the container each add padding between
@@ -206,10 +209,10 @@ class GroupBreathTab:
         KeyError — which, inside the per-frame update, silently left the spacer
         at its 1px default and the icon sitting next to the QR button.
         """
-        if not (dpg.does_item_exist("gb_qr_btn") and dpg.does_item_exist("gb_header_push")):
+        if not (dpg.does_item_exist("gb_qr_icon") and dpg.does_item_exist("gb_header_push")):
             return
         try:
-            state = dpg.get_item_state("gb_qr_btn")
+            state = dpg.get_item_state("gb_qr_icon")
             qr_right = state["rect_min"][0] + state["rect_size"][0]
             right_edge = dpg.get_viewport_client_width() - self._HEADER_INSET
         except (KeyError, TypeError, IndexError):
@@ -220,8 +223,9 @@ class GroupBreathTab:
             dpg.configure_item("gb_header_push", width=gap)
 
     def _refresh_network(self) -> None:
-        self._poll_net_click()
+        self._poll_header_clicks()
         self._right_align_header()
+        set_qr_color("gb_qr_icon", QR_HOVER if qr_hovered("gb_qr_icon") else QR_IDLE)
         colour = flash_colour(time.monotonic(), self._flash_until)
         if colour is None:
             colour = wifi_state_colour(self._net.on_expected_network)
@@ -235,19 +239,6 @@ class GroupBreathTab:
         self._last_tick = now
 
         snapshots = self._hub.get_ui_snapshot()
-        connected = [s for s in snapshots if s.active]
-
-        # Status text
-        if connected:
-            dpg.set_value(
-                "gb_status_text",
-                f"{len(connected)} device(s) connected on port 8001",
-            )
-        else:
-            dpg.set_value(
-                "gb_status_text",
-                "Waiting for devices on port 8001",
-            )
 
         current_uuids = {s.uuid for s in snapshots}
 

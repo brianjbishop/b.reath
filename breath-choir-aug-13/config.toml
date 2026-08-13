@@ -19,14 +19,9 @@ deadzone = 0.019999999552965164
 [detection]
 derivative_enabled = true
 derivative_smoothing_alpha = 0.2
-
-# Exit: how far the breath must travel to end each phase, as a fraction of the
-# performer's recent range. Separate because breathing is asymmetric — leaving
-# an inhale waits on the slow exhale, leaving an exhale waits on the fast inhale.
 inhale_exit_delta = 0.06
 exhale_exit_delta = 0.12
 hold_exit_delta = 0.15
-
 hold_enabled = true
 hold_still_tol = 0.05
 min_hold_ms = 1500

@@ -18,13 +18,10 @@ import dearpygui.dearpygui as dpg
 from breath_midi.ui.widgets.knob import add_knob
 
 _KNOB_SIZE = 52
-_HINT_COLOR = (140, 140, 140)
 
 
 def build_hold_controls(on_change: Callable) -> None:
     """Build the detection controls into the current DPG container."""
-    dpg.add_text("Exit — how far the breath must move to end a phase",
-                 color=_HINT_COLOR)
     with dpg.group(horizontal=True):
         add_knob(
             "ui_inhale_exit_delta", "In exit",
@@ -43,11 +40,6 @@ def build_hold_controls(on_change: Callable) -> None:
             default=0.15, min_value=0.0, max_value=0.60, step=0.005,
             fmt="%.3f", callback=on_change, size=_KNOB_SIZE,
         )
-    dpg.add_text(
-        "In exit waits on the slow exhale, so\nit wants the smaller number.",
-        color=_HINT_COLOR,
-    )
-
     dpg.add_spacer(height=8)
     dpg.add_separator()
     dpg.add_spacer(height=4)
@@ -84,8 +76,3 @@ def build_hold_controls(on_change: Callable) -> None:
             default=0.20, min_value=0.0, max_value=1.0, step=0.01,
             callback=on_change, size=_KNOB_SIZE,
         )
-    dpg.add_spacer(height=4)
-    dpg.add_text(
-        "A hold is declared only above Peak\nor below Valley. Close the gap to\nallow a hold anywhere.",
-        color=_HINT_COLOR,
-    )
