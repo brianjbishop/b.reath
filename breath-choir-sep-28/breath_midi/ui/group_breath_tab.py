@@ -41,7 +41,7 @@ from breath_midi.ui.widgets.wifi_icon import (
 )
 
 
-def build_track_row(on_load, on_stop) -> None:
+def build_track_row(on_load, on_stop, on_record=None) -> None:
     """
     The Tracks row.
 
@@ -57,7 +57,35 @@ def build_track_row(on_load, on_stop) -> None:
         _tray_button("gb_track_export", into_tray=False)   # wired by recording
         dpg.add_spacer(width=6)
         dpg.add_button(label="Stop", tag="gb_track_stop", callback=lambda: on_stop())
+        if on_record is not None:
+            dpg.add_spacer(width=6)
+            dpg.add_button(label="Rec", tag="gb_track_record",
+                           callback=lambda: on_record())
     dpg.add_text("", tag="gb_track_list", color=(120, 120, 120), wrap=RIGHT_COL_W - 24)
+
+
+def set_recording(active: bool) -> None:
+    """Red while a take is running, so it cannot be left rolling unnoticed."""
+    if not dpg.does_item_exist("gb_track_record"):
+        return
+    dpg.configure_item("gb_track_record", label="Stop rec" if active else "Rec")
+    theme = "theme_rec_on" if active else "theme_rec_off"
+    if dpg.does_item_exist(theme):
+        dpg.bind_item_theme("gb_track_record", theme)
+
+
+def build_record_themes() -> None:
+    """Built once; binding a theme that does not exist is a hard DPG error."""
+    if dpg.does_item_exist("theme_rec_on"):
+        return
+    with dpg.theme(tag="theme_rec_on"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (200, 60, 55, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 60, 55, 200))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (200, 60, 55, 255))
+    with dpg.theme(tag="theme_rec_off"):
+        with dpg.theme_component(dpg.mvButton):
+            pass
 
 
 def set_track_list(names: list[str]) -> None:
@@ -211,9 +239,11 @@ class GroupBreathTab:
                     # Pinned to the bottom of the right column.
                     dpg.add_spacer(height=-1, tag="gb_tracks_push")
                     dpg.add_separator()
+                    build_record_themes()
                     build_track_row(
                         on_load=self._on_load_track,
                         on_stop=self._hub.stop_all_tracks,
+                        on_record=self._on_toggle_record,
                     )
 
     # ── per-frame update ──────────────────────────────────────────────────────
@@ -256,6 +286,28 @@ class GroupBreathTab:
             # A bad file must not take the panel down mid-performance.
             print(f"[Tracks] could not load {path.name}: {exc}")
 
+    def _on_toggle_record(self) -> None:
+        """Rec starts a take; Stop rec writes it to tracks/recordings/."""
+        if self._hub.is_recording:
+            path = self._hub.stop_recording()
+            if path is None:
+                print("[Tracks] nothing captured — no file written")
+        else:
+            self._hub.start_recording(
+                f"take {time.strftime('%Y-%m-%d %H%M%S')}"
+            )
+        set_recording(self._hub.is_recording)
+
+    def _on_export_take(self) -> None:
+        """
+        The export icon writes whatever take is currently rolling.
+
+        Same action as Stop rec, reachable from the icon that has always meant
+        'out of the tray'.
+        """
+        if self._hub.is_recording:
+            self._on_toggle_record()
+
     def _poll_header_clicks(self) -> None:
         """
         Both header icons are drawlists, which have no callback of their own, so
@@ -269,6 +321,8 @@ class GroupBreathTab:
             show_qr_popup(8001, self._net_label)
         elif edge and _hovered("gb_track_load"):
             self._on_load_track()
+        elif edge and _hovered("gb_track_export"):
+            self._on_export_take()
         self._mouse_was_down = down
 
     # Right edge inset: the window and the container each add padding between
@@ -339,6 +393,7 @@ class GroupBreathTab:
         set_track_list([
             self._hub._tracks[p].track.name for p in self._hub.playing_tracks
         ])
+        set_recording(self._hub.is_recording)
         self._bottom_panel.update(snapshots)
         self._animation.update(dt)
 

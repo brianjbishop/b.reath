@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
 
@@ -62,6 +63,10 @@ class EveryBreathHub:
         # prefix -> TrackPlaybackSource, for tracks currently in the choir.
         self._tracks: dict = {}
         self._track_seq = 0
+        self._recorder = None
+        self._recordings_dir = (
+            Path(__file__).resolve().parents[2] / "tracks" / "recordings"
+        )
         self._runtimes: dict[str, DeviceRuntime] = {}
         self._waveform_bufs: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
@@ -90,6 +95,55 @@ class EveryBreathHub:
         if self._feed is not None:
             self._feed.stop()
             self._feed = None
+
+    # ── recording ────────────────────────────────────────────────────────────
+
+    @property
+    def is_recording(self) -> bool:
+        return self._recorder is not None
+
+    def start_recording(self, name: str) -> None:
+        """
+        Capture live breath into a take.
+
+        Refused while a track is playing: that would only produce a lossy copy
+        of a file that already exists.
+        """
+        if self._tracks:
+            print("[Tracks] not recording: a track is playing")
+            return
+        from breath_midi.tracks.recorder import TrackRecorder
+
+        self._recorder = TrackRecorder(self._config.detection, name=name)
+
+    def stop_recording(self):
+        """
+        Write the take and return its path, or None if nothing was captured.
+
+        An empty take writes no file — hitting record and stop with nobody
+        breathing should not litter the folder with empty tracks.
+        """
+        recorder, self._recorder = self._recorder, None
+        if recorder is None or recorder.sample_count == 0:
+            return None
+
+        for entry in self.registry.all_entries():
+            recorder.set_device_meta(
+                entry.uuid, entry.name, entry.color,
+                entry.inhale_note, entry.exhale_note,
+            )
+
+        from breath_midi.tracks.file import write_track
+
+        # The take name becomes a filename, so strip anything that could walk
+        # out of the folder rather than trusting what was typed.
+        safe = "".join(
+            c for c in recorder.name if c.isalnum() or c in " -_"
+        ).strip()
+        path = self._recordings_dir / f"{safe or 'take'}.breath.json"
+        write_track(path, recorder.to_track())
+        print(f"[Tracks] wrote {path}")
+        return path
 
     # ── tracks ───────────────────────────────────────────────────────────────
 
@@ -440,6 +494,11 @@ class EveryBreathHub:
         # a dict assignment — it cannot block this thread.  See ws_server.
         if self._ws is not None:
             self._ws.publish_sample(uuid, float(sample.amp))
+
+        # Record the raw amplitude, before any processing — a take must be
+        # replayable against dials other than the ones in force right now.
+        if self._recorder is not None:
+            self._recorder.note(uuid, float(sample.amp))
 
         # set_activity_source_id is called here without a lock because
         # _on_sample is always invoked from the single OSC receive thread.

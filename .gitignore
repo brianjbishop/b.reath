@@ -36,3 +36,8 @@
 
 # Crash / recovered-error log written at runtime.
 **/breath.log
+
+# Breath recordings carry performer names alongside a detailed trace of how a
+# real person was breathing, and this repo is public. Generated tracks ship;
+# recordings stay local.
+breath-choir-sep-28/tracks/recordings/
