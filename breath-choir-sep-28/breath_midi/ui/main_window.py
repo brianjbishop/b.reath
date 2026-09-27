@@ -116,6 +116,39 @@ class BreathMidiDpgUI:
         if not self._loading:
             self.apply_from_ui()
 
+    # ── detection presets ────────────────────────────────────────────────────
+
+    @property
+    def _presets_dir(self):
+        return self.store.path.parent / "presets"
+
+    def _preset_names(self) -> list[str]:
+        from breath_midi.presets import list_presets
+        return list_presets(self._presets_dir)
+
+    def _load_preset(self, name: str) -> None:
+        """A preset replaces the dials and nothing else."""
+        from dataclasses import replace as _replace
+
+        from breath_midi.presets import load_preset
+        try:
+            det = load_preset(self._presets_dir, name)
+        except (FileNotFoundError, ValueError, TypeError) as exc:
+            print(f"[Presets] could not load {name!r}: {exc}")
+            return
+        self._apply_cfg(_replace(self.runtime.config, detection=det))
+
+    def _save_preset(self, name: str) -> None:
+        """Capture whatever the knobs currently say, under this name."""
+        from breath_midi.presets import save_preset
+        # The knobs are the source of truth here, and a knob turned since the
+        # last autosave would otherwise be missed.
+        self.apply_from_ui()
+        try:
+            save_preset(self._presets_dir, name, self.runtime.config.detection)
+        except (OSError, ValueError) as exc:
+            print(f"[Presets] could not save {name!r}: {exc}")
+
     def run(self) -> None:
         dpg.create_context()
         ui0 = self.runtime.config.ui
@@ -434,6 +467,9 @@ class BreathMidiDpgUI:
                         on_change=self._cb,
                         hub=self._eb_hub,
                         parent_tag="tab_content_group",
+                        preset_names=self._preset_names,
+                        on_preset_load=self._load_preset,
+                        on_preset_save=self._save_preset,
                     )
                     self._gb_tab.build()
                 else:

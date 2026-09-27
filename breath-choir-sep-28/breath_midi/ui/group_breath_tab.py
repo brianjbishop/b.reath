@@ -54,8 +54,21 @@ class GroupBreathTab:
     frame — a single bool toggle with no render-state rebuild cost.
     """
 
-    def __init__(self, hub: EveryBreathHub, parent_tag: str, on_change=None) -> None:
+    def __init__(
+        self,
+        hub: EveryBreathHub,
+        parent_tag: str,
+        on_change=None,
+        preset_names=None,
+        on_preset_load=None,
+        on_preset_save=None,
+    ) -> None:
         self._hub = hub
+        # Preset wiring is passed straight through to the Detection panel; the
+        # tab holds no preset logic of its own.
+        self._preset_names = preset_names
+        self._on_preset_load = on_preset_load
+        self._on_preset_save = on_preset_save
         # main_window's apply-from-UI hook; the detection controls live here but
         # the config write still belongs to the window that owns the store.
         self._on_change = on_change or (lambda *_: None)
@@ -152,7 +165,12 @@ class GroupBreathTab:
                     with dpg.collapsing_header(
                         label="Detection", tag="gb_detection_header", default_open=True
                     ):
-                        build_hold_controls(self._on_change)
+                        build_hold_controls(
+                            self._on_change,
+                            preset_names=self._preset_names,
+                            on_preset_load=self._on_preset_load,
+                            on_preset_save=self._on_preset_save,
+                        )
                     dpg.add_spacer(height=6)
                     with dpg.collapsing_header(
                         label="Breath Guide", tag="gb_guide_header", default_open=True

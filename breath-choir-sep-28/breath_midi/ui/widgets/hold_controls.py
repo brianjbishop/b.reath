@@ -20,8 +20,58 @@ from breath_midi.ui.widgets.knob import add_knob
 _KNOB_SIZE = 52
 
 
-def build_hold_controls(on_change: Callable) -> None:
-    """Build the detection controls into the current DPG container."""
+def _build_preset_row(
+    preset_names: Callable[[], list[str]],
+    on_load: Callable[[str], None],
+    on_save: Callable[[str], None],
+) -> None:
+    """Pick a saved dial set, or name the current one and keep it."""
+
+    def _refresh() -> None:
+        dpg.configure_item("ui_preset_combo", items=list(preset_names()))
+
+    def _load(*_args) -> None:
+        name = dpg.get_value("ui_preset_combo")
+        if name:
+            on_load(name)
+
+    def _save(*_args) -> None:
+        name = (dpg.get_value("ui_preset_name") or "").strip()
+        if not name:
+            return
+        on_save(name)
+        dpg.set_value("ui_preset_name", "")
+        _refresh()
+        dpg.set_value("ui_preset_combo", name)
+
+    with dpg.group(horizontal=True):
+        dpg.add_combo([], tag="ui_preset_combo", width=140, callback=_load)
+        dpg.add_spacer(width=6)
+        dpg.add_input_text(tag="ui_preset_name", width=90, hint="name")
+        dpg.add_spacer(width=6)
+        dpg.add_button(label="Save", tag="ui_preset_save", callback=_save)
+    _refresh()
+
+
+def build_hold_controls(
+    on_change: Callable,
+    preset_names: Callable[[], list[str]] | None = None,
+    on_preset_load: Callable[[str], None] | None = None,
+    on_preset_save: Callable[[str], None] | None = None,
+) -> None:
+    """
+    Build the detection controls into the current DPG container.
+
+    The preset row is optional and carries no logic of its own — it lists, loads
+    and saves through the callbacks, because main_window is what owns the config
+    and the store.  Passing none of them builds the panel exactly as before.
+    """
+    if preset_names is not None and on_preset_load is not None and on_preset_save is not None:
+        _build_preset_row(preset_names, on_preset_load, on_preset_save)
+        dpg.add_spacer(height=6)
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
+
     with dpg.group(horizontal=True):
         add_knob(
             "ui_inhale_exit_delta", "In exit",
