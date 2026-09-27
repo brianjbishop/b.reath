@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from breath_midi.config.model import ConfigModel
 from breath_midi.every_breath.device_runtime import DeviceRuntime, make_device_config
 from breath_midi.every_breath.multi_osc import MultiDeviceOscSource
+from breath_midi.feed import SampleFeed
 from breath_midi.every_breath.registry import DeviceEntry, DeviceRegistry
 from breath_midi.midi.activity_bus import MidiActivityBus
 from breath_midi.midi.mido_sink import MidoMidiSink
@@ -56,6 +57,8 @@ class EveryBreathHub:
         self._activity_bus = MidiActivityBus()
         self._midi_sink: MidoMidiSink | None = None
         self._source: MultiDeviceOscSource | None = None
+        # Every source posts through one drain thread; see feed.py.
+        self._feed: SampleFeed | None = None
         self._runtimes: dict[str, DeviceRuntime] = {}
         self._waveform_bufs: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
@@ -65,6 +68,25 @@ class EveryBreathHub:
         self.viz_error: str | None = None
 
     # ── public lifecycle ──────────────────────────────────────────────────────
+
+    def _ensure_feed(self) -> SampleFeed:
+        """Started by whichever of the listener or a track needs it first."""
+        if self._feed is None:
+            self._feed = SampleFeed(
+                self._on_sample, self._on_new_device, self._on_timeout
+            )
+            self._feed.start()
+        return self._feed
+
+    def _release_feed_if_idle(self) -> None:
+        """Stop the drain thread only once nothing is producing into it."""
+        if self._listening:
+            return
+        if getattr(self, "_tracks", None):
+            return
+        if self._feed is not None:
+            self._feed.stop()
+            self._feed = None
 
     def start_listening(self, out_port: str | None = None) -> None:
         """
@@ -86,11 +108,12 @@ class EveryBreathHub:
                 self._midi_sink.open(out_port)
             except Exception as exc:
                 print(f"[EveryBreath] MIDI open failed: {exc}")
+        feed = self._ensure_feed()
         source = MultiDeviceOscSource(
             port=self._osc_port,
-            on_sample_cb=self._on_sample,
-            on_new_device_cb=self._on_new_device,
-            on_timeout_cb=self._on_timeout,
+            on_sample_cb=feed.submit_sample,
+            on_new_device_cb=feed.submit_new_device,
+            on_timeout_cb=feed.submit_timeout,
         )
         # Bind before assigning to self._source so a failure leaves the hub
         # cleanly stopped rather than holding a half-started source.
@@ -134,6 +157,7 @@ class EveryBreathHub:
             except Exception:
                 pass
         self._listening = False
+        self._release_feed_if_idle()
         self.registry.mark_all_disconnected()
         # Close the MIDI sink so start_listening() opens a fresh one.
         # This guarantees the next start gets a healthy port handle — mido
