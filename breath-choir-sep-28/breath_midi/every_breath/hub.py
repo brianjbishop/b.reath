@@ -59,6 +59,9 @@ class EveryBreathHub:
         self._source: MultiDeviceOscSource | None = None
         # Every source posts through one drain thread; see feed.py.
         self._feed: SampleFeed | None = None
+        # prefix -> TrackPlaybackSource, for tracks currently in the choir.
+        self._tracks: dict = {}
+        self._track_seq = 0
         self._runtimes: dict[str, DeviceRuntime] = {}
         self._waveform_bufs: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
@@ -87,6 +90,80 @@ class EveryBreathHub:
         if self._feed is not None:
             self._feed.stop()
             self._feed = None
+
+    # ── tracks ───────────────────────────────────────────────────────────────
+
+    def _ensure_midi_sink(self) -> None:
+        """Open a sink if one is not already open.  Failure is reported, not fatal."""
+        if self._midi_sink is not None:
+            return
+        self._midi_sink = MidoMidiSink(
+            activity_bus=self._activity_bus, source_id="eb"
+        )
+        try:
+            self._midi_sink.open(self._config.midi.out_port.strip() or None)
+        except Exception as exc:
+            print(f"[Tracks] MIDI open failed: {exc}")
+
+    def load_track(self, path) -> str:
+        """
+        Add a saved performance to the choir.  Returns the prefix assigned to it.
+
+        Deliberately does not touch config.detection.  The track's stored dials
+        are provenance — what happened to be set when it was captured — and
+        applying them is a separate, explicit action.  The track is the clip;
+        the dials are the instrument.
+
+        Raises ValueError if the file is malformed, before anything is started.
+        """
+        from breath_midi.tracks.file import read_track
+        from breath_midi.tracks.playback import TrackPlaybackSource
+
+        track = read_track(path)           # validate before touching any state
+        self._track_seq += 1
+        prefix = f"pb{self._track_seq}"
+
+        self._ensure_midi_sink()
+
+        # Seed names and colours before playback announces the devices, so the
+        # panel shows the performers the track was recorded with rather than
+        # Device 1..n briefly flashing up first.
+        for device in track.devices:
+            uuid = f"{prefix}:{device.uuid}"
+            self.registry.get_or_create(uuid)
+            self.registry.set_name(uuid, device.name)
+            self.registry.set_color(uuid, device.color)
+
+        source = TrackPlaybackSource(track, self._ensure_feed(), prefix=prefix)
+        self._tracks[prefix] = source
+        source.start()
+        return prefix
+
+    def stop_track(self, prefix: str) -> None:
+        """Stop one track and let go of any keys its performers were holding."""
+        source = self._tracks.pop(prefix, None)
+        if source is None:
+            return
+        source.stop()
+        for entry in self.registry.all_entries():
+            if not entry.uuid.startswith(f"{prefix}:"):
+                continue
+            runtime = self._runtimes.get(entry.uuid)
+            if runtime is not None:
+                try:
+                    runtime.release()
+                except Exception:
+                    pass
+            self.registry.mark_disconnected(entry.uuid)
+        self._release_feed_if_idle()
+
+    def stop_all_tracks(self) -> None:
+        for prefix in list(self._tracks):
+            self.stop_track(prefix)
+
+    @property
+    def playing_tracks(self) -> list[str]:
+        return sorted(self._tracks)
 
     def start_listening(self, out_port: str | None = None) -> None:
         """
