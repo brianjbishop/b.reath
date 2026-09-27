@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import dearpygui.dearpygui as dpg
 
@@ -12,6 +13,11 @@ from breath_midi.ui.qr import show_qr_popup
 # Width of the right-hand column. The plot column is sized as its negative,
 # so the two always add up to the window and cannot drift apart.
 RIGHT_COL_W = 336
+
+
+def _hovered(tag: str) -> bool:
+    """A drawlist has no callback, so a click is an edge while it is hovered."""
+    return dpg.does_item_exist(tag) and dpg.is_item_hovered(tag)
 
 _NET_ICON = 26
 _QR_ICON = 26
@@ -33,6 +39,31 @@ from breath_midi.ui.widgets.wifi_icon import (
     set_wifi_color,
     state_colour as wifi_state_colour,
 )
+
+
+def build_track_row(on_load, on_stop) -> None:
+    """
+    The Tracks row.
+
+    gb_track_load is the old gb_track_import placeholder, renamed to the job it
+    now does.  gb_track_export stays a placeholder until recording wires it to
+    save a take — do not remove it.
+    """
+    with dpg.group(horizontal=True, tag="gb_track_row"):
+        dpg.add_text("Tracks", color=(140, 140, 140))
+        dpg.add_spacer(width=8)
+        _tray_button("gb_track_load", into_tray=True)      # load a track
+        dpg.add_spacer(width=6)
+        _tray_button("gb_track_export", into_tray=False)   # wired by recording
+        dpg.add_spacer(width=6)
+        dpg.add_button(label="Stop", tag="gb_track_stop", callback=lambda: on_stop())
+    dpg.add_text("", tag="gb_track_list", color=(120, 120, 120), wrap=RIGHT_COL_W - 24)
+
+
+def set_track_list(names: list[str]) -> None:
+    """Called every frame; silent before the row is built."""
+    if dpg.does_item_exist("gb_track_list"):
+        dpg.set_value("gb_track_list", ", ".join(names))
 
 
 class GroupBreathTab:
@@ -180,14 +211,10 @@ class GroupBreathTab:
                     # Pinned to the bottom of the right column.
                     dpg.add_spacer(height=-1, tag="gb_tracks_push")
                     dpg.add_separator()
-                    with dpg.group(horizontal=True, tag="gb_track_row"):
-                        dpg.add_text("Tracks", color=(140, 140, 140))
-                        dpg.add_spacer(width=8)
-                        _tray_button("gb_track_import", into_tray=True)
-                        dpg.add_spacer(width=6)
-                        _tray_button("gb_track_export", into_tray=False)
-                        dpg.add_spacer(width=8)
-                        dpg.add_text("(placeholder)", color=(110, 110, 110))
+                    build_track_row(
+                        on_load=self._on_load_track,
+                        on_stop=self._hub.stop_all_tracks,
+                    )
 
     # ── per-frame update ──────────────────────────────────────────────────────
 
@@ -201,6 +228,34 @@ class GroupBreathTab:
             self._flash_until = time.monotonic() + FLASH_SECONDS
             self._on_change()   # persist through main_window's autosave path
 
+    def _on_load_track(self) -> None:
+        """
+        Pick a track to add to the choir.
+
+        A track joins the performers rather than replacing them, so this does
+        not stop the live listener and does not touch the detection dials.
+        """
+        root = Path(__file__).resolve().parents[2]
+        start_dir = root / "tracks" / "generated"
+        dpg.add_file_dialog(
+            directory_selector=False,
+            show=True,
+            width=760,
+            height=430,
+            default_path=str(start_dir if start_dir.exists() else root),
+            callback=lambda _s, app_data: self._load_track_file(app_data),
+        )
+
+    def _load_track_file(self, app_data) -> None:
+        path = Path(str(app_data.get("file_path_name", "")))
+        if not path.is_file():
+            return
+        try:
+            self._hub.load_track(path)
+        except (ValueError, OSError) as exc:
+            # A bad file must not take the panel down mid-performance.
+            print(f"[Tracks] could not load {path.name}: {exc}")
+
     def _poll_header_clicks(self) -> None:
         """
         Both header icons are drawlists, which have no callback of their own, so
@@ -212,6 +267,8 @@ class GroupBreathTab:
             self._on_learn_network()
         elif edge and qr_hovered("gb_qr_icon"):
             show_qr_popup(8001, self._net_label)
+        elif edge and _hovered("gb_track_load"):
+            self._on_load_track()
         self._mouse_was_down = down
 
     # Right edge inset: the window and the container each add padding between
@@ -279,6 +336,9 @@ class GroupBreathTab:
             else:
                 self._refresh_series(snap, series_tag)
 
+        set_track_list([
+            self._hub._tracks[p].track.name for p in self._hub.playing_tracks
+        ])
         self._bottom_panel.update(snapshots)
         self._animation.update(dt)
 

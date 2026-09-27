@@ -210,9 +210,15 @@ def test_group_breath_has_collapsible_detection_and_guide(dpg_context):
                       "connected_uuids": lambda self: set()},
         )()
         _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+        # The Tracks row drives these three; without them it is not a hub.
+        _tracks: dict = {}
+        playing_tracks: list[str] = []
 
         def get_ui_snapshot(self):
             return []
+
+        def stop_all_tracks(self):
+            pass
 
     calls: list[int] = []
     tab = GroupBreathTab(  # type: ignore[arg-type]
