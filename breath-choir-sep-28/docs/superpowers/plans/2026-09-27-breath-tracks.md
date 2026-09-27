@@ -15,7 +15,7 @@ threading.
 
 ## Global Constraints
 
-- Work happens in `breath-choir-aug-13/`. Do not touch sibling iterations.
+- Work happens in `breath-choir-sep-28/`. Do not touch sibling iterations.
 - Store what the phone sent, never what the detector concluded. No phases, derivatives or
   cycle metrics in a track file.
 - Loading a track never changes the current dials.
@@ -1416,11 +1416,17 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `hub.load_track`, `hub.stop_track`, `hub.playing_tracks` (Task 6).
-- Produces: tags `gb_track_load`, `gb_track_stop`, `gb_track_list`.
+- Produces: tags `gb_track_load`, `gb_track_stop`, `gb_track_list`; leaves
+  `gb_track_export` in place for Task 10.
 
-The existing `_tray_button("gb_track_import", into_tray=True)` becomes the load control and
-keeps its drawn icon. Clicks use the same mouse-edge polling as the QR and Wi-Fi icons,
-because a drawlist has no callback of its own.
+Two tray placeholders already exist and neither does anything yet:
+`gb_track_import` (arrow into a tray) and `gb_track_export` (arrow out of one). The mapping
+needs no new icons — import becomes **load** here, export becomes **save a recording** in
+Task 10. Keep both. Only the "(placeholder)" text is removed, replaced by the list of what
+is playing.
+
+Clicks use the same mouse-edge polling as the QR and Wi-Fi icons, because a drawlist has no
+callback of its own.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1447,6 +1453,19 @@ def test_track_row_has_load_and_stop(ctx):
     assert dpg.does_item_exist("gb_track_list")
 
 
+def test_export_placeholder_survives_for_task_10(ctx):
+    """Task 10 wires this icon to save a recording. Deleting it here breaks that."""
+    from breath_midi.ui.group_breath_tab import build_track_row
+    build_track_row(on_load=lambda: None, on_stop=lambda: None)
+    assert dpg.does_item_exist("gb_track_export")
+
+
+def test_placeholder_label_is_gone(ctx):
+    from breath_midi.ui.group_breath_tab import build_track_row
+    build_track_row(on_load=lambda: None, on_stop=lambda: None)
+    assert dpg.get_value("gb_track_list") == ""
+
+
 def test_track_list_starts_empty(ctx):
     from breath_midi.ui.group_breath_tab import build_track_row, set_track_list
     build_track_row(on_load=lambda: None, on_stop=lambda: None)
@@ -1466,11 +1485,19 @@ Extract the existing Tracks row into a function and add the pieces:
 
 ```python
 def build_track_row(on_load, on_stop) -> None:
-    """The Tracks row: load icon, stop button, and what is playing."""
+    """
+    The Tracks row.
+
+    gb_track_load is the existing gb_track_import placeholder, renamed.
+    gb_track_export stays a placeholder until Task 10 wires it to save a
+    recording — do not delete it here.
+    """
     with dpg.group(horizontal=True, tag="gb_track_row"):
         dpg.add_text("Tracks", color=(140, 140, 140))
         dpg.add_spacer(width=8)
-        _tray_button("gb_track_load", into_tray=True)
+        _tray_button("gb_track_load", into_tray=True)     # load a track
+        dpg.add_spacer(width=6)
+        _tray_button("gb_track_export", into_tray=False)  # wired in Task 10
         dpg.add_spacer(width=6)
         dpg.add_button(label="Stop", tag="gb_track_stop", callback=lambda: on_stop())
     dpg.add_text("", tag="gb_track_list", color=(120, 120, 120), wrap=300)
@@ -1816,7 +1843,8 @@ Expected: 5 passed
 
 - [ ] **Step 5: Add the record control and the gitignore**
 
-In the Tracks row, add a record toggle next to the existing export icon:
+Wire `gb_track_export` — the placeholder Task 8 preserved — to save the current recording,
+and add the one genuinely new control beside it:
 
 ```python
         dpg.add_spacer(width=6)
@@ -1824,7 +1852,9 @@ In the Tracks row, add a record toggle next to the existing export icon:
 ```
 
 `on_record` calls `hub.start_recording(...)` or `hub.stop_recording()` and recolours the
-button red while recording. Append to `.gitignore`:
+button red while recording. A click on `gb_track_export` calls `hub.stop_recording()` and
+prints the path written; extend `_poll_header_clicks` for it exactly as Task 8 did for
+`gb_track_load`. Append to `.gitignore`:
 
 ```
 # Recordings are of real people, with their names attached, and this repo is public.

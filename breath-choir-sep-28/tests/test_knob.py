@@ -1,0 +1,326 @@
+"""
+Rotary knob widget tests.
+
+The knob is drawn rather than a native DPG control, so two things need
+guarding: the value must stay readable through the ordinary
+dpg.get_value/set_value path the rest of the app uses, and the drag/scroll
+arithmetic must clamp instead of running off the end of the range.
+"""
+
+from __future__ import annotations
+
+import dearpygui.dearpygui as dpg
+import pytest
+
+from breath_midi.ui.widgets import knob as K
+
+
+@pytest.fixture
+def ctx():
+    dpg.create_context()
+    K._reset_for_tests()
+    with dpg.window(tag="root"):
+        pass
+    yield "root"
+    dpg.destroy_context()
+    K._reset_for_tests()
+
+
+def make(ctx, tag="k", default=0.5, lo=0.0, hi=1.0, step=0.01, **kw):
+    calls: list[float] = []
+    with dpg.group(parent=ctx):
+        K.add_knob(
+            tag, "Test",
+            default=default, min_value=lo, max_value=hi, step=step,
+            callback=lambda: calls.append(float(dpg.get_value(tag))),
+            **kw,
+        )
+    return tag, calls
+
+
+# ── value binding ────────────────────────────────────────────────────────────
+
+
+def test_value_is_readable_through_dpg_get_value(ctx):
+    tag, _ = make(ctx, default=0.42)
+    assert dpg.get_value(tag) == pytest.approx(0.42)
+
+
+def test_external_set_value_then_refresh_repaints(ctx):
+    """load_into_ui() writes with set_value; the knob must follow."""
+    tag, _ = make(ctx, default=0.2)
+    dpg.set_value(tag, 0.9)
+    K.refresh_knobs()
+    assert K._knobs[tag].last_drawn == pytest.approx(0.9)
+
+
+def test_arc_and_pointer_exist(ctx):
+    tag, _ = make(ctx)
+    assert dpg.does_item_exist(f"{tag}__knob")
+    assert dpg.does_item_exist(f"{tag}__arc")
+    assert dpg.does_item_exist(f"{tag}__ptr")
+
+
+# ── scroll ───────────────────────────────────────────────────────────────────
+
+
+def test_scroll_up_increases_by_one_step(ctx):
+    tag, calls = make(ctx, default=0.50, step=0.01)
+    k = K._knobs[tag]
+    K._set(k, dpg.get_value(tag) + 1 * k.step)
+    assert dpg.get_value(tag) == pytest.approx(0.51)
+    assert calls == [pytest.approx(0.51)]
+
+
+def test_scroll_down_decreases(ctx):
+    tag, _ = make(ctx, default=0.50, step=0.01)
+    k = K._knobs[tag]
+    K._set(k, dpg.get_value(tag) - 1 * k.step)
+    assert dpg.get_value(tag) == pytest.approx(0.49)
+
+
+def test_scroll_clamps_at_both_ends(ctx):
+    tag, _ = make(ctx, default=0.99, step=0.01)
+    k = K._knobs[tag]
+    for _ in range(50):
+        K._set(k, dpg.get_value(tag) + k.step)
+    assert dpg.get_value(tag) == pytest.approx(1.0)
+    for _ in range(500):
+        K._set(k, dpg.get_value(tag) - k.step)
+    assert dpg.get_value(tag) == pytest.approx(0.0)
+
+
+# ── drag ─────────────────────────────────────────────────────────────────────
+
+
+def test_drag_up_increases(ctx):
+    """Dragging up raises the value, as in every DAW."""
+    tag, _ = make(ctx, default=0.5)
+    k = K._knobs[tag]
+    K._active_tag = tag
+    k.drag_start_value = 0.5
+    K._on_drag(None, [0, 0.0, -55.0])  # 55px up = quarter of a full sweep
+    assert dpg.get_value(tag) == pytest.approx(0.75, abs=0.01)
+
+
+def test_drag_down_decreases(ctx):
+    tag, _ = make(ctx, default=0.5)
+    k = K._knobs[tag]
+    K._active_tag = tag
+    k.drag_start_value = 0.5
+    K._on_drag(None, [0, 0.0, 55.0])
+    assert dpg.get_value(tag) == pytest.approx(0.25, abs=0.01)
+
+
+def test_drag_is_anchored_not_cumulative(ctx):
+    """DPG reports drag delta from the press, so re-applying must not compound."""
+    tag, _ = make(ctx, default=0.5)
+    k = K._knobs[tag]
+    K._active_tag = tag
+    k.drag_start_value = 0.5
+    for _ in range(5):
+        K._on_drag(None, [0, 0.0, -22.0])
+    assert dpg.get_value(tag) == pytest.approx(0.6, abs=0.01)
+
+
+def test_drag_clamps(ctx):
+    tag, _ = make(ctx, default=0.5)
+    k = K._knobs[tag]
+    K._active_tag = tag
+    k.drag_start_value = 0.5
+    K._on_drag(None, [0, 0.0, -9999.0])
+    assert dpg.get_value(tag) == pytest.approx(1.0)
+
+
+def test_release_stops_dragging(ctx):
+    tag, _ = make(ctx, default=0.5)
+    K._active_tag = tag
+    K._on_release(None, None)
+    assert K._active_tag is None
+    K._on_drag(None, [0, 0.0, -100.0])  # must be ignored
+    assert dpg.get_value(tag) == pytest.approx(0.5)
+
+
+# ── ranges and formatting ────────────────────────────────────────────────────
+
+
+def test_non_unit_range(ctx):
+    tag, _ = make(ctx, tag="ms", default=1500, lo=0, hi=5000, step=50, is_int=True, fmt="%.0f")
+    k = K._knobs[tag]
+    K._set(k, 1500 + k.step)
+    assert dpg.get_value(tag) == pytest.approx(1550)
+
+
+def test_int_knob_stays_whole(ctx):
+    tag, _ = make(ctx, tag="i", default=10, lo=0, hi=100, step=1, is_int=True, fmt="%.0f")
+    k = K._knobs[tag]
+    K._set(k, 10.4)
+    assert float(dpg.get_value(tag)).is_integer()
+
+
+def test_callback_not_fired_when_value_unchanged(ctx):
+    tag, calls = make(ctx, default=1.0, step=0.01)
+    k = K._knobs[tag]
+    K._set(k, 2.0)  # clamps to 1.0, i.e. no change
+    assert calls == []
+
+
+def test_detection_tab_knobs_build_and_bind():
+    """The four real controls, built the way main_window builds them."""
+    dpg.create_context()
+    K._reset_for_tests()
+    try:
+        with dpg.window(tag="w"):
+            with dpg.group(horizontal=True):
+                K.add_knob("ui_hold_peak_band", "Peak", default=0.80,
+                           min_value=0.0, max_value=1.0, step=0.01)
+                K.add_knob("ui_hold_valley_band", "Valley", default=0.20,
+                           min_value=0.0, max_value=1.0, step=0.01)
+                K.add_knob("ui_hold_still_tol", "Still tol", default=0.05,
+                           min_value=0.0, max_value=0.5, step=0.005, fmt="%.3f")
+                K.add_knob("ui_hold_exit_delta", "Exit", default=0.15,
+                           min_value=0.0, max_value=1.0, step=0.01, fmt="%.3f")
+        assert dpg.get_value("ui_hold_peak_band") == pytest.approx(0.80)
+        assert dpg.get_value("ui_hold_valley_band") == pytest.approx(0.20)
+        assert dpg.get_value("ui_hold_still_tol") == pytest.approx(0.05)
+        assert dpg.get_value("ui_hold_exit_delta") == pytest.approx(0.15)
+    finally:
+        dpg.destroy_context()
+        K._reset_for_tests()
+
+
+# ── drawn geometry ───────────────────────────────────────────────────────────
+
+
+def test_pointer_sweeps_left_to_right_through_the_top(ctx):
+    """
+    At minimum the pointer aims lower-left, at half it aims straight up, at
+    maximum lower-right — a hardware pot with its gap at the bottom.
+    """
+    tag, _ = make(ctx, default=0.0)
+    k = K._knobs[tag]
+    centre = k.size / 2.0
+
+    def pointer_tip(value: float) -> tuple[float, float]:
+        dpg.set_value(tag, value)
+        K._redraw(k, force=True)
+        return tuple(dpg.get_item_configuration(f"{tag}__ptr")["p2"])[:2]
+
+    x0, y0 = pointer_tip(0.0)
+    xh, yh = pointer_tip(0.5)
+    x1, y1 = pointer_tip(1.0)
+
+    assert x0 < centre and y0 > centre, "min should point lower-left"
+    assert abs(xh - centre) < 1.0 and yh < centre, "half should point straight up"
+    assert x1 > centre and y1 > centre, "max should point lower-right"
+
+
+def test_value_arc_grows_with_value(ctx):
+    tag, _ = make(ctx, default=0.0)
+    k = K._knobs[tag]
+
+    def arc_len(value: float) -> int:
+        dpg.set_value(tag, value)
+        K._redraw(k, force=True)
+        return len(dpg.get_item_configuration(f"{tag}__arc")["points"])
+
+    assert arc_len(0.0) < arc_len(0.5) < arc_len(1.0)
+
+
+def test_hover_hit_test_does_not_raise(ctx):
+    """
+    _hovered() runs on every click and wheel event. It cannot be exercised
+    without a real cursor, but it must at least be safe to call headlessly.
+    """
+    make(ctx)
+    assert K._hovered() is None
+
+
+# ── config round-trip ────────────────────────────────────────────────────────
+
+
+def test_config_round_trips_after_save(tmp_path):
+    """Autosave runs on every knob turn, so a save must never lose or break."""
+    import shutil
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
+    dst = tmp_path / "config.toml"
+    shutil.copy(Path(__file__).parent.parent / "config.toml", dst)
+    store = ConfigStore(dst)
+    cfg = store.load()
+    store.save(cfg)
+    assert store.load() == cfg
+
+
+def test_detection_has_only_live_parameters():
+    """
+    Every detection field must be read by the detector.
+
+    Four amplitude thresholds sat in the config for weeks without being read by
+    anything, and `hysteresis` silently duplicated `slope_enter_abs`. This
+    fails if dead weight creeps back.
+    """
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
+    cfg = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+    fields = set(cfg.detection.__dataclass_fields__)
+    assert fields == {
+        "derivative_enabled", "derivative_smoothing_alpha",
+        "inhale_exit_delta", "exhale_exit_delta", "hold_exit_delta",
+        "hold_enabled", "hold_still_tol", "min_hold_ms",
+        "hold_peak_band", "hold_valley_band",
+    }, f"unexpected detection fields: {sorted(fields)}"
+
+
+
+
+
+def test_qr_popup_never_deletes_its_texture():
+    """
+    Regression for a hard segfault, not an exception.
+
+    The popup used to delete its texture registry on close and rebuild it on
+    open, both from inside DPG callbacks — which run during a frame. The Metal
+    backend could still be holding the texture it had just been told to free,
+    and the app died in ImGui_ImplMetal_RenderDrawData -> setFragmentTexture:
+    -> objc_retain. Python never raised, so nothing reached breath.log; the
+    window simply vanished.
+
+    Reproduced by deleting inside a frame callback (exit 139) and fixed by
+    creating the texture once and replacing its pixels in place.
+    """
+    from breath_midi.ui import qr
+
+    dpg.create_context()
+    qr._reset_for_tests()
+    try:
+        dpg.create_viewport(title="t", width=500, height=400)
+        dpg.setup_dearpygui()
+        with dpg.window(tag="host"):
+            pass
+        dpg.show_viewport()
+
+        qr.show_qr_popup(8001, "breath-choir")
+        tex_id = dpg.get_alias_id(qr._QR_TEX_TAG)
+        assert dpg.does_item_exist(qr._QR_TEX_TAG)
+
+        for i in range(10):
+            qr._hide()
+            dpg.render_dearpygui_frame()
+            qr.show_qr_popup(8001 + i, "breath-choir")
+            dpg.render_dearpygui_frame()
+            # Same texture object throughout — never freed, so nothing dangles.
+            assert dpg.get_alias_id(qr._QR_TEX_TAG) == tex_id, (
+                "the texture was recreated; the renderer can dangle on the old one"
+            )
+
+        qr._hide()
+        assert not dpg.is_item_shown(qr._QR_WIN_TAG)
+        assert dpg.does_item_exist(qr._QR_TEX_TAG), "texture must survive a close"
+    finally:
+        dpg.destroy_context()
+        qr._reset_for_tests()

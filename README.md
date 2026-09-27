@@ -30,7 +30,8 @@ across different breathing depths and styles.
 
 | Folder | What it is |
 |--------|-----------|
-| [breath-choir-aug-13/](breath-choir-aug-13/) | In progress — performance mechanics: breath-hold detection, four-phase cycle |
+| [breath-choir-sep-28/](breath-choir-sep-28/) | In progress — breath tracks: saved performances replayed as extra performers, named dial presets, recording |
+| [breath-choir-aug-13/](breath-choir-aug-13/) | Performance mechanics — breath-hold detection, three-phase cycle, retracement-based phase changes |
 | [breath-beat-may-1/](breath-beat-may-1/) | Rhythm piece — per-device MIDI channels, Breath Beat tab, gate disabled |
 | [breath-choir-apr-25/](breath-choir-apr-25/) | Multi-performer — Every Breath + Group Breath tabs, breath guide animation |
 | [stop-and-let-the-rose-smell-v2/](stop-and-let-the-rose-smell-v2/) | Adds p5.js browser visualization via OSC→WebSocket bridge |
@@ -48,7 +49,7 @@ Dependencies per iteration are in each folder's `requirements.txt`.
 ## Running
 
 ```bash
-cd breath-choir-aug-13
+cd breath-choir-sep-28
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

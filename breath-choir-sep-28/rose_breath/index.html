@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  rose_breath / index.html  —  live breath visualization
+
+  HOW TO RUN:
+    1. Start the app:  python -m breath_midi.app
+    2. Activate Every Breath or Group Breath (the circle button) — that is what
+       opens the WebSocket.
+    3. Open this file in a browser — file:// works, no local server needed.
+
+    There is no separate bridge process any more. The app receives phone data on
+    8001 and fans it out to both MIDI and this page; ws_port lives under [viz] in
+    config.toml.
+
+  PHONES:
+    Phones must be connected to the TP-Link router.
+    TOTEM must send OSC to this Mac's static IP on port 8001.
+    The app relays each breath value here via WebSocket on ws://localhost:8765.
+
+  TESTING WITHOUT HARDWARE:
+    Click "Load Dummy Data" (top right) to drive the visualization from
+    synthetic breath patterns defined in dummy_data.js instead of the bridge.
+-->
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rose Breath</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; overflow: hidden; }
+    #dummyToggle {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 4px;
+      padding: 8px 14px;
+      font-family: monospace;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #dummyToggle:hover { background: rgba(255, 255, 255, 0.18); }
+  </style>
+</head>
+<body>
+<button id="dummyToggle" onclick="toggleDummyMode()">Load Dummy Data</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+<script src="dummy_data.js"></script>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WS_URL       = 'ws://localhost:8765';
+const LERP_FACTOR  = 0.08;
+const TIMEOUT_MS   = 5000;
+const RECONNECT_MS = 2000;
+const GOLDEN       = 0.618033988749895;  // golden ratio conjugate
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Device state
+// ─────────────────────────────────────────────────────────────────────────────
+
+const devices  = {};   // uuid → { displayedValue, targetValue, colorIndex, lastSeen, removing }
+const colorMap = {};   // uuid → colorIndex  (persists for the session)
+let   nextColorIndex = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WebSocket
+// ─────────────────────────────────────────────────────────────────────────────
+
+let ws          = null;
+let wsConnected = false;
+
+// Shared ingestion path — real WS messages and synthetic dummy-data samples
+// both flow through these two functions, so dummy mode exercises exactly the
+// same rendering/lerp/timeout logic as live data.
+function handleSample(uuid, value) {
+  if (colorMap[uuid] === undefined) colorMap[uuid] = nextColorIndex++;
+
+  if (!devices[uuid]) {
+    devices[uuid] = {
+      displayedValue: 0,
+      targetValue:    0,
+      colorIndex:     colorMap[uuid],
+      lastSeen:       Date.now(),
+      removing:       false,
+    };
+  }
+
+  devices[uuid].targetValue = value;
+  devices[uuid].lastSeen    = Date.now();
+  devices[uuid].removing    = false;
+}
+
+function handleDisconnect(uuid) {
+  if (devices[uuid]) devices[uuid].removing = true;
+}
+
+function connectWS() {
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    setTimeout(connectWS, RECONNECT_MS);
+    return;
+  }
+
+  ws.onopen = () => {
+    wsConnected = true;
+  };
+
+  ws.onmessage = ({ data }) => {
+    if (dummyMode) return;   // ignore real data while testing with synthetic data
+
+    const msg = JSON.parse(data);
+
+    if (msg.disconnected) {
+      handleDisconnect(msg.uuid);
+      return;
+    }
+
+    handleSample(msg.uuid, msg.value);
+  };
+
+  ws.onclose = ws.onerror = () => {
+    wsConnected = false;
+    setTimeout(connectWS, RECONNECT_MS);
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Dummy data (synthetic breath signal generator — patterns in dummy_data.js)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let dummyMode    = false;
+let dummyStartMs = 0;
+
+function smoothstep(p) {
+  return p * p * (3 - 2 * p);
+}
+
+// Returns a 0–1 breath value for one synthetic performer at elapsed time t
+// (seconds). Returns null once past dropoutAfter_s, so the caller can simply
+// stop feeding samples and let the real timeout/fade-out logic take over.
+function sampleDummyDevice(params, t) {
+  const { period_s, ampMin, ampMax, shape, periodJitter, ampJitter, seed = 0, dropoutAfter_s } = params;
+
+  if (dropoutAfter_s !== undefined && t > dropoutAfter_s) return null;
+
+  const period = periodJitter
+    ? period_s * (1 + periodJitter * (noise(t * 0.06 + seed * 1000) - 0.5))
+    : period_s;
+
+  const frac = (t % period) / period;
+  let shaped;
+
+  if (shape === 'box') {
+    if (frac < 0.25)      shaped = smoothstep(frac / 0.25);
+    else if (frac < 0.5)  shaped = 1;
+    else if (frac < 0.75) shaped = 1 - smoothstep((frac - 0.5) / 0.25);
+    else                  shaped = 0;
+  } else if (shape === 'sawtooth') {
+    const inhaleFrac = params.inhaleFrac ?? 0.3;
+    shaped = frac < inhaleFrac
+      ? smoothstep(frac / inhaleFrac)
+      : 1 - smoothstep((frac - inhaleFrac) / (1 - inhaleFrac));
+  } else {
+    shaped = (Math.sin(TWO_PI * frac - HALF_PI) + 1) / 2;
+  }
+
+  if (ampJitter) {
+    shaped += ampJitter * (noise(t * 0.8 + seed * 1000 + 500) - 0.5);
+    shaped = constrain(shaped, 0, 1);
+  }
+
+  return ampMin + (ampMax - ampMin) * shaped;
+}
+
+function toggleDummyMode() {
+  dummyMode = !dummyMode;
+
+  // Clear whichever data source we're leaving behind
+  for (const uuid in devices)  delete devices[uuid];
+  for (const uuid in colorMap) delete colorMap[uuid];
+  nextColorIndex = 0;
+
+  if (dummyMode) dummyStartMs = Date.now();
+
+  document.getElementById('dummyToggle').textContent =
+    dummyMode ? 'Back to Live' : 'Load Dummy Data';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Color helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Returns [r, g, b, a] (0–255) from HSV+alpha (all inputs 0–1)
+function hsvaToRGBA(h, s, v, a) {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  let r, g, b;
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+  }
+  return [r * 255, g * 255, b * 255, a * 255];
+}
+
+function deviceColor(colorIndex, alpha) {
+  const hue = (colorIndex * GOLDEN) % 1.0;
+  return hsvaToRGBA(hue, 0.75, 0.85, alpha);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Petal drawing
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Draws a petal along the +x axis from (0,0) to (len, 0).
+// halfW is the half-width at the widest point.
+// Caller must push/translate/rotate before calling, and pop after.
+function petalShape(len, halfW) {
+  beginShape();
+  vertex(0, 0);
+  bezierVertex(len * 0.25, -halfW,  len * 0.75, -halfW,  len, 0);
+  bezierVertex(len * 0.75,  halfW,  len * 0.25,  halfW,  0,   0);
+  endShape(CLOSE);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  p5 sketch
+// ─────────────────────────────────────────────────────────────────────────────
+
+function setup() {
+  pixelDensity(1);   // perf test: cap canvas at 1x — Retina 2x/3x may be the real cause of lag
+  createCanvas(windowWidth, windowHeight);
+  connectWS();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function draw() {
+  background(10);   // #0a0a0a
+
+  const now = Date.now();
+  const cx  = width  / 2;
+  const cy  = height / 2;
+
+  // Feed synthetic samples through the same ingestion path as real WS data
+  if (dummyMode) {
+    const t = (now - dummyStartMs) / 1000;
+    for (const params of DUMMY_DATA) {
+      const value = sampleDummyDevice(params, t);
+      if (value !== null) handleSample(params.uuid, value);
+    }
+  }
+
+  // Mark devices that have gone silent
+  for (const uuid in devices) {
+    const d = devices[uuid];
+    if (!d.removing && now - d.lastSeen > TIMEOUT_MS) d.removing = true;
+  }
+
+  // Advance lerp; collect petals whose fade-out is complete
+  const dead = [];
+  for (const uuid in devices) {
+    const d      = devices[uuid];
+    const target = d.removing ? 0 : d.targetValue;
+    d.displayedValue = lerp(d.displayedValue, target, LERP_FACTOR);
+    if (d.removing && d.displayedValue < 0.004) dead.push(uuid);
+  }
+  for (const uuid of dead) delete devices[uuid];
+
+  // Stable petal order: sort by colorIndex (order of first appearance)
+  const uuids = Object.keys(devices).sort(
+    (a, b) => devices[a].colorIndex - devices[b].colorIndex
+  );
+  const n = uuids.length;
+
+  // Base petal dimensions, auto-scaled by device count
+  const maxLen  = height * 0.40;
+  const minLen  = height * 0.15;
+  const baseLen = n < 1
+    ? maxLen
+    : constrain(map(n, 1, 12, maxLen, minLen), minLen, maxLen);
+
+  // Maximum half-width: constrained so adjacent petals don't overlap
+  const maxHalfW = n < 2
+    ? baseLen * 0.22
+    : baseLen * sin(PI / n) * 0.42;
+
+  // Draw petals
+  for (let i = 0; i < n; i++) {
+    const uuid  = uuids[i];
+    const d     = devices[uuid];
+    const v     = d.displayedValue;
+
+    // Radial angle: 0 = top, clockwise
+    const angle = (TWO_PI / n) * i - HALF_PI;
+
+    const petalLen = baseLen  * (0.08 + 0.92 * v);
+    const halfW    = maxHalfW * (0.15 + 0.85 * v);
+
+    const fillC   = deviceColor(d.colorIndex, 0.80);
+    const strokeC = deviceColor(d.colorIndex, 1.00);
+
+    push();
+    translate(cx, cy);
+    rotate(angle);
+    fill(...fillC);
+    stroke(...strokeC);
+    strokeWeight(1.5);
+    petalShape(petalLen, halfW);
+    pop();
+  }
+
+  // Center circle
+  noStroke();
+  fill(255, 255, 255, 230);
+  circle(cx, cy, 24);
+
+  // Status overlay — bottom left
+  const liveCount = Object.values(devices).filter(d => !d.removing).length;
+  fill(255, 255, 255, 127);
+  noStroke();
+  textFont('monospace');
+  textSize(12);
+  text(`mode: ${dummyMode ? 'dummy' : 'live'}`, 16, height - 44);
+  text(`devices: ${liveCount}`,                 16, height - 28);
+  text(`port: 8001`,                            16, height - 12);
+
+  // Reconnect indicator — top left
+  if (!wsConnected && !dummyMode) {
+    fill(255, 70, 70, 210);
+    textSize(12);
+    text('● reconnecting…', 16, 20);
+  }
+}
+</script>
+</body>
+</html>

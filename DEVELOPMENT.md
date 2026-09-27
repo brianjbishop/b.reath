@@ -288,6 +288,48 @@ these waveforms, so the app-level mode covers the same cases interactively.
 
 ---
 
+## breath-choir-sep-28 — September 2026
+
+Forked from `breath-choir-aug-13` to build **breath tracks**: saved performances
+that replay through the real chain, so detection can be tuned without a room
+full of people.
+
+The line that shaped the design: **store what the phone sent, never what the
+detector concluded.** A phone sends `t`, a uuid and a float; phase, derivative,
+cycle metrics and MIDI are all derived downstream. Baking any of that into a
+track would mean turning a dial changed nothing on playback, which is the one
+job a track exists to do.
+
+Three pieces, in order:
+
+1. **Named presets** — `config.toml` holds exactly one dial set and autosave
+   overwrites it on every knob turn, so a tuning you liked cannot survive the
+   next adjustment. A preset is that dial set, kept under a name.
+2. **Tracks** — a JSON file of raw samples plus the dials in effect when it was
+   captured. Playback is *additive*, not a mode: recorded performers register as
+   ordinary devices and mix with live phones, picking up colours, notes, mute
+   and solo for free, and fading out through the existing 5s timeout when the
+   track ends. Emitted uuids are prefixed so a recording cannot collide with the
+   phone it came from.
+3. **Recording** — a tap beside the hub's sample path.
+
+Dials are saved with a track but **not applied on load**. The framing is
+Ableton's: the track is the clip, the dials are the instrument. A clip records
+which instrument it was made with; it does not reconfigure yours.
+
+`tracks/generated/` is committed. `tracks/recordings/` is gitignored — a
+recording carries performer names alongside a detailed trace of how someone was
+breathing, and this repo is public.
+
+One piece of real architecture came out of it. `hub._on_sample` routes MIDI
+activity and drives per-device runtimes without a lock, and documents that it
+assumes a single calling thread. Playback alongside live phones adds a second
+producer, so rather than put a lock on the real-time MIDI path, every source
+posts to a queue and one drain thread makes the calls. The assumption stays
+literally true.
+
+Plan: `breath-choir-sep-28/docs/superpowers/plans/2026-09-27-breath-tracks.md`
+
 ## Key design decisions
 
 | Decision | Rationale |
