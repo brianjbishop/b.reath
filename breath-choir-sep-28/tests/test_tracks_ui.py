@@ -1,10 +1,11 @@
 """
-The Tracks row.
+The transport in the Devices header.
 
-Two tray placeholders already existed and did nothing: an arrow into a tray and
-an arrow out of one. They map onto the two real jobs — import becomes load,
-export becomes save a recording — so no new icons are needed. The export icon
-must survive this task even though nothing wires it until recording lands.
+Four icons, right-aligned: load, save, stop, record. They sit with the device
+list rather than in the side column, because a loaded track *is* more devices.
+
+The two tray placeholders that shipped doing nothing are now the load and save
+halves, so no new icon art was needed for them.
 """
 
 from __future__ import annotations
@@ -12,54 +13,102 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 import pytest
 
-from breath_midi.ui.group_breath_tab import build_track_row, set_track_list
+from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+from breath_midi.ui.widgets.transport_icons import IDLE, RECORDING
+
+ICONS = ("gb_track_load", "gb_track_export", "gb_track_stop", "gb_track_record")
+
+
+class FakeRegistry:
+    def get(self, uuid):
+        return None
+
+    def all_entries(self):
+        return []
+
+    def connected_uuids(self):
+        return set()
 
 
 @pytest.fixture
-def row():
+def panel():
+    from pathlib import Path
+
+    from breath_midi.config.store import ConfigStore
+
     dpg.create_context()
-    calls = {"load": 0, "stop": 0}
+
+    class FakeHub:
+        registry = FakeRegistry()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
     with dpg.window(tag="root"):
-        build_track_row(
-            on_load=lambda: calls.__setitem__("load", calls["load"] + 1),
-            on_stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
-        )
-    yield calls
+        p = GroupBreathBottomPanel(FakeHub(), "root")  # type: ignore[arg-type]
+        p.build()
+    yield p
     dpg.destroy_context()
 
 
-def test_has_load_stop_and_a_list(row):
-    for tag in ("gb_track_load", "gb_track_stop", "gb_track_list"):
+def test_all_four_icons_are_in_the_devices_header(panel):
+    header = dpg.get_alias_id("gb_bottom_header")
+    for tag in ICONS:
         assert dpg.does_item_exist(tag), tag
+        # get_item_parent returns the alias when one is set, the id otherwise.
+        parent = dpg.get_item_parent(tag)
+        parent_id = dpg.get_alias_id(parent) if isinstance(parent, str) else parent
+        assert parent_id == header, f"{tag} is not in the Devices header"
 
 
-def test_export_placeholder_survives_for_recording(row):
-    """Recording wires this icon. Deleting it here breaks that task."""
-    assert dpg.does_item_exist("gb_track_export")
+def test_icons_are_the_same_size(panel):
+    sizes = {
+        (dpg.get_item_configuration(t)["width"], dpg.get_item_configuration(t)["height"])
+        for t in ICONS
+    }
+    assert len(sizes) == 1, f"icons differ in size: {sizes}"
 
 
-def test_list_starts_empty(row):
-    assert dpg.get_value("gb_track_list") == ""
+def test_a_push_spacer_exists_for_right_alignment(panel):
+    assert dpg.does_item_exist("gb_transport_push")
 
 
-def test_stop_button_calls_back(row):
-    dpg.get_item_callback("gb_track_stop")()
-    assert row["stop"] == 1
+def test_record_icon_goes_red_while_recording(panel):
+    panel.refresh_transport(is_recording=True)
+    fill = dpg.get_item_configuration("gb_track_record_shape")["fill"]
+    assert fill[0] == pytest.approx(RECORDING[0] / 255.0, abs=1e-3)
 
 
-def test_set_track_list_shows_names(row):
-    set_track_list(["Group of four", "Dropout"])
-    assert dpg.get_value("gb_track_list") == "Group of four, Dropout"
+def test_record_icon_returns_to_idle(panel):
+    panel.refresh_transport(is_recording=True)
+    panel.refresh_transport(is_recording=False)
+    fill = dpg.get_item_configuration("gb_track_record_shape")["fill"]
+    assert fill[0] == pytest.approx(IDLE[0] / 255.0, abs=1e-3)
 
 
-def test_set_track_list_clears(row):
-    set_track_list(["Group of four"])
-    set_track_list([])
-    assert dpg.get_value("gb_track_list") == ""
+def test_clicks_route_to_the_callbacks(panel):
+    fired = []
+    panel.set_transport_callbacks(
+        on_load=lambda: fired.append("load"),
+        on_stop=lambda: fired.append("stop"),
+        on_record=lambda: fired.append("record"),
+        on_export=lambda: fired.append("export"),
+    )
+    # Nothing is hovered in a headless context, so no callback should fire.
+    panel.poll_transport_clicks(edge=True)
+    assert fired == []
 
 
-def test_set_track_list_is_safe_with_no_row():
-    """Called every frame from update(); must not raise before the row exists."""
-    dpg.create_context()
-    set_track_list(["anything"])
-    dpg.destroy_context()
+def test_polling_without_an_edge_does_nothing(panel):
+    fired = []
+    panel.set_transport_callbacks(
+        on_load=lambda: fired.append("load"),
+        on_stop=lambda: fired.append("stop"),
+        on_record=lambda: fired.append("record"),
+        on_export=lambda: fired.append("export"),
+    )
+    panel.poll_transport_clicks(edge=False)
+    assert fired == []
+
+
+def test_refresh_is_safe_before_callbacks_are_wired(panel):
+    panel.refresh_transport(is_recording=False)
+    panel.poll_transport_clicks(edge=True)

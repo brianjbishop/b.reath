@@ -2,6 +2,22 @@ from __future__ import annotations
 
 import dearpygui.dearpygui as dpg
 
+from breath_midi.ui.widgets.tray_icon import tray_button as _tray_button
+from breath_midi.ui.widgets.transport_icons import (
+    HOVER as _ICON_HOVER,
+    IDLE as _ICON_IDLE,
+    RECORDING as _ICON_REC,
+    build_record_icon,
+    build_stop_icon,
+    hovered as _icon_hovered,
+    set_icon_color,
+)
+
+_ICON_SIZE = 26
+_ICON_GAP = 8
+# Padding the panel's border and the child window each add on the right.
+_PANEL_INSET = 18
+
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
 from breath_midi.types import Phase
 from breath_midi.ui.widgets.arrow_label import (
@@ -71,6 +87,11 @@ class GroupBreathBottomPanel:
         self._name_handler_tags: dict[str, int] = {}
         self._edit_handler_tags: dict[str, int] = {}
         self._enter_handler: int | None = None
+        self._transport_gap: int = -1
+        self._on_load = None
+        self._on_stop = None
+        self._on_record = None
+        self._on_export = None
 
 
     def _bands(self) -> tuple[float, float]:
@@ -82,6 +103,66 @@ class GroupBreathBottomPanel:
         return float(d.hold_peak_band), float(d.hold_valley_band)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
+
+    def set_transport_callbacks(self, on_load, on_stop, on_record, on_export) -> None:
+        """Wired by the tab, which owns the file dialog and the record toggle."""
+        self._on_load = on_load
+        self._on_stop = on_stop
+        self._on_record = on_record
+        self._on_export = on_export
+
+    def poll_transport_clicks(self, edge: bool) -> None:
+        """
+        Drawlists have no callback, so a click is a mouse edge while hovered.
+
+        `edge` is passed in rather than read here, so the tab's single
+        mouse-edge detection stays the only one in the tab.
+        """
+        if not edge:
+            return
+        if _icon_hovered("gb_track_load") and self._on_load:
+            self._on_load()
+        elif _icon_hovered("gb_track_export") and self._on_export:
+            self._on_export()
+        elif _icon_hovered("gb_track_stop") and self._on_stop:
+            self._on_stop()
+        elif _icon_hovered("gb_track_record") and self._on_record:
+            self._on_record()
+
+    def refresh_transport(self, is_recording: bool) -> None:
+        """Hover highlight, and red while a take is rolling."""
+        for tag in ("gb_track_stop", "gb_track_record"):
+            if tag == "gb_track_record" and is_recording:
+                set_icon_color(tag, _ICON_REC)
+                continue
+            set_icon_color(tag, _ICON_HOVER if _icon_hovered(tag) else _ICON_IDLE)
+        self._right_align_transport()
+
+    def _right_align_transport(self) -> None:
+        """
+        Push the four icons to the panel's right edge.
+
+        DPG has no alignment, so the spacer is resized each frame from the
+        measured gap.  Measured against the label's right edge rather than the
+        container's left, because a child_window reports rect_size but not
+        rect_min — asking for its left edge raises KeyError, which inside a
+        per-frame update fails silently and leaves the icons mid-row.
+        """
+        if not dpg.does_item_exist("gb_transport_push"):
+            return
+        try:
+            label = dpg.get_item_state("gb_bottom_label")
+            label_right = label["rect_min"][0] + label["rect_size"][0]
+            panel_w = dpg.get_item_rect_size(self._panel_tag)[0]
+            panel_left = dpg.get_item_state("gb_bottom_collapse_btn")["rect_min"][0]
+        except (KeyError, TypeError, IndexError):
+            return
+        right_edge = panel_left + panel_w - _PANEL_INSET
+        icons = 4 * _ICON_SIZE + 3 * _ICON_GAP
+        gap = int(right_edge - label_right - icons)
+        if gap != self._transport_gap and gap >= 1:
+            self._transport_gap = gap
+            dpg.configure_item("gb_transport_push", width=gap)
 
     def build(self) -> None:
         """Called once from GroupBreathTab.build() after the shared plot."""
@@ -100,7 +181,19 @@ class GroupBreathBottomPanel:
                     callback=self._on_collapse_toggle,
                     small=True,
                 )
-                dpg.add_text("  Per-device MIDI settings", color=(140, 140, 140))
+                dpg.add_text("  Per-device MIDI settings", tag="gb_bottom_label",
+                             color=(140, 140, 140))
+                # Transport, right-aligned: load, save, stop, record. These act
+                # on the device list below them, which is where they belong —
+                # a loaded track *is* more devices.
+                dpg.add_spacer(width=1, tag="gb_transport_push")
+                _tray_button("gb_track_load", into_tray=True)
+                dpg.add_spacer(width=_ICON_GAP)
+                _tray_button("gb_track_export", into_tray=False)
+                dpg.add_spacer(width=_ICON_GAP)
+                build_stop_icon("gb_track_stop")
+                dpg.add_spacer(width=_ICON_GAP)
+                build_record_icon("gb_track_record")
 
             # ── Scrollable horizontal strip container ─────────────────────────
             with dpg.child_window(
