@@ -112,3 +112,9 @@ ws_host = "localhost"
 [network]
 expected_gateway_mac = ""
 label = "breath-choir"
+
+[cc]
+min_value = 0
+max_value = 127
+curve_kind = "gamma"
+curve_gamma = 1.0

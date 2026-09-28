@@ -6,6 +6,7 @@ from typing import Any
 
 from breath_midi.config.model import (
     ConfigModel,
+    CcConfig,
     ConsistentBreathsTriggerConfig,
     DetectionConfig,
     ExhaleOnsetTriggerConfig,
@@ -81,6 +82,7 @@ class ConfigStore:
         ui_raw = raw.get("ui", {}) if isinstance(raw.get("ui", {}), dict) else {}
         viz_raw = raw.get("viz", {}) if isinstance(raw.get("viz", {}), dict) else {}
         net_raw = raw.get("network", {}) if isinstance(raw.get("network", {}), dict) else {}
+        cc_raw = raw.get("cc", {}) if isinstance(raw.get("cc", {}), dict) else {}
 
         input_cfg = InputConfig(
             mode=_req_str(input_raw, "mode"),
@@ -220,6 +222,12 @@ class ConfigStore:
             triggers=triggers_cfg,
             ui=ui_cfg,
             viz=viz_cfg,
+            cc=CcConfig(
+                min_value=int(cc_raw.get("min_value", 0)),
+                max_value=int(cc_raw.get("max_value", 127)),
+                curve_kind=str(cc_raw.get("curve_kind", "gamma")),
+                curve_gamma=float(cc_raw.get("curve_gamma", 1.0)),
+            ),
             network=NetworkConfig(
                 expected_gateway_mac=str(net_raw.get("expected_gateway_mac", "")),
                 label=str(net_raw.get("label", "breath-choir")),

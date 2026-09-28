@@ -126,3 +126,30 @@ def build_hold_controls(
             default=0.20, min_value=0.0, max_value=1.0, step=0.01,
             callback=on_change, size=_KNOB_SIZE,
         )
+
+    dpg.add_spacer(height=8)
+    dpg.add_separator()
+    dpg.add_spacer(height=4)
+
+    # CC shaping is global: range and curve belong to what the dial drives, not
+    # to who is breathing into it. The CC numbers stay per device.
+    dpg.add_text("CC", color=(140, 140, 140))
+    dpg.add_spacer(height=4)
+    with dpg.group(horizontal=True):
+        add_knob(
+            "ui_cc_min", "Min",
+            default=0, min_value=0, max_value=127, step=1,
+            fmt="%.0f", callback=on_change, size=_KNOB_SIZE, is_int=True,
+        )
+        dpg.add_spacer(width=10)
+        add_knob(
+            "ui_cc_max", "Max",
+            default=127, min_value=0, max_value=127, step=1,
+            fmt="%.0f", callback=on_change, size=_KNOB_SIZE, is_int=True,
+        )
+        dpg.add_spacer(width=10)
+        add_knob(
+            "ui_cc_gamma", "Curve",
+            default=1.0, min_value=0.1, max_value=4.0, step=0.05,
+            fmt="%.2f", callback=on_change, size=_KNOB_SIZE,
+        )

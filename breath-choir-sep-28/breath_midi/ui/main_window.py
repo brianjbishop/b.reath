@@ -1061,6 +1061,17 @@ class BreathMidiDpgUI:
                 hold_peak_band=float(dpg.get_value("ui_hold_peak_band")),
                 hold_valley_band=float(dpg.get_value("ui_hold_valley_band")),
             )
+            # Curve kind is implied by gamma: 1.0 is linear, anything else
+            # bends, so the knob alone is enough and there is no second control
+            # that can disagree with it.
+            gamma = float(dpg.get_value("ui_cc_gamma"))
+            cc_cfg = replace(
+                cfg.cc,
+                min_value=int(dpg.get_value("ui_cc_min")),
+                max_value=int(dpg.get_value("ui_cc_max")),
+                curve_kind="linear" if abs(gamma - 1.0) < 1e-6 else "gamma",
+                curve_gamma=gamma,
+            )
             net_cfg = cfg.network
             gb = self._gb_tab
             if gb is not None and getattr(gb, "_net", None) is not None:
@@ -1129,6 +1140,12 @@ class BreathMidiDpgUI:
                 midi=midi_cfg,
                 triggers=triggers_cfg,
                 ui=cfg.ui,
+                # These three were omitted, and all three have defaults, so
+                # every knob turn quietly reset them: the WebSocket settings,
+                # and the router MAC the Wi-Fi icon had just learned.
+                viz=cfg.viz,
+                network=net_cfg,
+                cc=cc_cfg,
             )
 
         cfg = apply(self.runtime.config)
@@ -1162,6 +1179,9 @@ class BreathMidiDpgUI:
             dpg.set_value("ui_min_hold_ms", int(cfg.detection.min_hold_ms))
             dpg.set_value("ui_hold_peak_band", float(cfg.detection.hold_peak_band))
             dpg.set_value("ui_hold_valley_band", float(cfg.detection.hold_valley_band))
+            dpg.set_value("ui_cc_min", int(cfg.cc.min_value))
+            dpg.set_value("ui_cc_max", int(cfg.cc.max_value))
+            dpg.set_value("ui_cc_gamma", float(cfg.cc.curve_gamma))
             # Knobs are drawn from their bound value; set_value alone cannot
             # repaint them.
             refresh_knobs()

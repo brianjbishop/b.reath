@@ -122,6 +122,25 @@ class SustainTriggerConfig:
 
 
 @dataclass(frozen=True)
+class CcConfig:
+    """
+    How a breath is shaped into a controller value.  Global, not per device.
+
+    Range and curve are a property of what the dial is driving — a filter wants
+    the same response whoever is breathing into it — so they are set once in the
+    Detection panel rather than repeated on every device strip.  The CC numbers
+    themselves stay per device, because that is what separates performers.
+    """
+
+    min_value: int = 0
+    max_value: int = 127
+    # "linear" or "gamma".  Breath is perceptually non-linear, so gamma lets the
+    # dial respond more at the bottom of the range or more at the top.
+    curve_kind: str = "gamma"
+    curve_gamma: float = 1.0
+
+
+@dataclass(frozen=True)
 class ConsistentBreathsTriggerConfig:
     enabled: bool
     n: int
@@ -208,4 +227,5 @@ class ConfigModel:
     ui: UiConfig
     viz: VizConfig = field(default_factory=VizConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
+    cc: CcConfig = field(default_factory=CcConfig)
 
