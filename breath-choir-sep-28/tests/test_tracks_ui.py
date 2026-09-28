@@ -112,3 +112,29 @@ def test_polling_without_an_edge_does_nothing(panel):
 def test_refresh_is_safe_before_callbacks_are_wired(panel):
     panel.refresh_transport(is_recording=False)
     panel.poll_transport_clicks(edge=True)
+
+
+def test_alignment_never_reads_the_panel_it_is_sizing(panel):
+    """
+    The regression this guards.
+
+    _right_align_transport used to measure the panel's own rect_size while
+    sizing that panel's content — a feedback loop that widened the gap every
+    frame until the icons sat off the right edge behind a scrollbar. The
+    measurement must come from the viewport, which contents cannot push.
+    """
+    import inspect
+
+    src = inspect.getsource(panel._right_align_transport)
+    assert "get_viewport_client_width" in src
+    assert "_panel_tag" not in src, "alignment is measuring the panel again"
+
+
+def test_alignment_is_safe_without_a_viewport(panel):
+    """Headless, and during the app's first frames, there is no viewport."""
+    panel._right_align_transport()
+
+
+def test_right_column_width_is_configurable(panel):
+    panel.set_right_column_width(400)
+    assert panel._right_col_w == 400

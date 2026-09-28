@@ -159,6 +159,7 @@ class GroupBreathTab:
 
                     # Per-device strip panel (fills remaining height)
                     self._bottom_panel.build()
+                    self._bottom_panel.set_right_column_width(RIGHT_COL_W)
                     self._bottom_panel.set_transport_callbacks(
                         on_load=self._on_load_track,
                         on_stop=self._hub.stop_all_tracks,

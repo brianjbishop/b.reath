@@ -15,8 +15,9 @@ from breath_midi.ui.widgets.transport_icons import (
 
 _ICON_SIZE = 26
 _ICON_GAP = 8
-# Padding the panel's border and the child window each add on the right.
-_PANEL_INSET = 18
+# Window padding, the panel border and the child window's own padding, between
+# the main column's right edge and where an icon can actually sit.
+_TRANSPORT_INSET = 34
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
 from breath_midi.types import Phase
@@ -88,6 +89,7 @@ class GroupBreathBottomPanel:
         self._edit_handler_tags: dict[str, int] = {}
         self._enter_handler: int | None = None
         self._transport_gap: int = -1
+        self._right_col_w: int = 336
         self._on_load = None
         self._on_stop = None
         self._on_record = None
@@ -103,6 +105,15 @@ class GroupBreathBottomPanel:
         return float(d.hold_peak_band), float(d.hold_valley_band)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
+
+    def set_right_column_width(self, width: int) -> None:
+        """
+        How much of the viewport the side column takes.
+
+        Passed in rather than imported, because the tab owns that constant and
+        importing it here would be circular.
+        """
+        self._right_col_w = int(width)
 
     def set_transport_callbacks(self, on_load, on_stop, on_record, on_export) -> None:
         """Wired by the tab, which owns the file dialog and the record toggle."""
@@ -148,19 +159,28 @@ class GroupBreathBottomPanel:
         rect_min — asking for its left edge raises KeyError, which inside a
         per-frame update fails silently and leaves the icons mid-row.
         """
-        if not dpg.does_item_exist("gb_transport_push"):
+        # No viewport yet during the first frames, and never in a headless
+        # test; asking for its width there raises rather than returning 0.
+        if not dpg.does_item_exist("gb_transport_push") or not dpg.is_viewport_ok():
             return
         try:
             label = dpg.get_item_state("gb_bottom_label")
             label_right = label["rect_min"][0] + label["rect_size"][0]
-            panel_w = dpg.get_item_rect_size(self._panel_tag)[0]
-            panel_left = dpg.get_item_state("gb_bottom_collapse_btn")["rect_min"][0]
-        except (KeyError, TypeError, IndexError):
+            viewport_w = dpg.get_viewport_client_width()
+        except Exception:
             return
-        right_edge = panel_left + panel_w - _PANEL_INSET
+        if not viewport_w:
+            return
+
+        # Measured against the viewport, never against the panel.  The panel's
+        # own rect_size grows with the content being sized here, so measuring it
+        # is a feedback loop: the gap widens, the content widens, the reported
+        # width grows again, and the icons walk off the right edge behind a
+        # scrollbar.  The viewport cannot be pushed by its contents.
+        right_edge = viewport_w - self._right_col_w - _TRANSPORT_INSET
         icons = 4 * _ICON_SIZE + 3 * _ICON_GAP
-        gap = int(right_edge - label_right - icons)
-        if gap != self._transport_gap and gap >= 1:
+        gap = max(1, int(right_edge - label_right - icons))
+        if gap != self._transport_gap:
             self._transport_gap = gap
             dpg.configure_item("gb_transport_push", width=gap)
 
