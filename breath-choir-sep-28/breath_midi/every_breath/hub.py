@@ -149,7 +149,8 @@ class EveryBreathHub:
             recorder.set_device_meta(
                 entry.uuid, entry.name, entry.color,
                 entry.inhale_note, entry.exhale_note,
-                entry.midi_channel,
+                entry.midi_channel, entry.hold_note,
+                entry.cons_n, entry.cons_tolerance,
             )
 
         from breath_midi.tracks.file import write_track
@@ -198,15 +199,29 @@ class EveryBreathHub:
 
         self._ensure_midi_sink()
 
-        # Seed names and colours before playback announces the devices, so the
-        # panel shows the performers the track was recorded with rather than
-        # Device 1..n briefly flashing up first.
+        # Restore every setting before playback announces the devices.
+        #
+        # This has to be complete, not just cosmetic.  get_or_create assigns
+        # notes and a colour to any device it has not seen, counting up from
+        # _next_index — so anything not restored here is silently replaced by
+        # whatever number happened to be next.  It went unnoticed for a while
+        # because the generated tracks use 54/55, 56/57 ... which is exactly
+        # what the auto-assigner produces.
+        #
+        # Seeding before the announcement also means _on_new_device builds the
+        # DeviceRuntime from the restored entry, so the voice starts on the
+        # right notes and channel rather than being corrected a frame later.
         for device in track.devices:
             uuid = f"{prefix}:{device.uuid}"
             self.registry.get_or_create(uuid)
             self.registry.set_name(uuid, device.name)
             self.registry.set_color(uuid, device.color)
             self.registry.set_midi_channel(uuid, device.midi_channel)
+            self.registry.set_inhale_note(uuid, device.inhale_note)
+            self.registry.set_exhale_note(uuid, device.exhale_note)
+            self.registry.set_hold_note(uuid, device.hold_note)
+            self.registry.set_cons_n(uuid, device.cons_n)
+            self.registry.set_cons_tolerance(uuid, device.cons_tolerance)
 
         source = TrackPlaybackSource(track, self._ensure_feed(), prefix=prefix)
         self._tracks[prefix] = source

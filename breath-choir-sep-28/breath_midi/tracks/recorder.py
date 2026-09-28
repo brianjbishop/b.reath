@@ -62,6 +62,9 @@ class TrackRecorder:
         inhale_note: int,
         exhale_note: int,
         midi_channel: int = 1,
+        hold_note: int = 0,
+        cons_n: int = 0,
+        cons_tolerance: float = 0.30,
     ) -> None:
         """
         Attach names, colours and notes, normally once at stop.
@@ -76,6 +79,9 @@ class TrackRecorder:
             inhale_note=int(inhale_note),
             exhale_note=int(exhale_note),
             midi_channel=int(midi_channel),
+            hold_note=int(hold_note),
+            cons_n=int(cons_n),
+            cons_tolerance=float(cons_tolerance),
         )
 
     def to_track(self) -> Track:

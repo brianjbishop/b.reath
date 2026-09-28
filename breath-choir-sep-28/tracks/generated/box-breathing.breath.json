@@ -1,7 +1,7 @@
 {
  "version": 1,
  "name": "Box Breathing",
- "created": "2026-09-27T22:16:58",
+ "created": "2026-09-27T22:24:52",
  "duration_s": 128.0,
  "source": "generated",
  "detection": {
@@ -27,7 +27,10 @@
    ],
    "inhale_note": 54,
    "exhale_note": 55,
-   "midi_channel": 1
+   "midi_channel": 1,
+   "hold_note": 0,
+   "cons_n": 0,
+   "cons_tolerance": 0.3
   }
  ],
  "samples": [

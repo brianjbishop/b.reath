@@ -36,10 +36,13 @@ class TrackDevice:
     color: tuple[int, int, int]
     inhale_note: int
     exhale_note: int
-    # 1-16. Optional on read with a default of 1, so tracks written before this
-    # field existed still load — no version bump needed for a field that only
-    # adds information.
-    midi_channel: int = 1
+    # Everything below is optional on read, so a track written before any of
+    # these fields existed still loads.  A field that only adds information
+    # needs no version bump.
+    midi_channel: int = 1          # 1-16
+    hold_note: int = 0             # 0 = the hold plays nothing
+    cons_n: int = 0                # 0 = consistency gate off
+    cons_tolerance: float = 0.30
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,9 @@ def write_track(path: Path, track: Track) -> None:
                 "inhale_note": d.inhale_note,
                 "exhale_note": d.exhale_note,
                 "midi_channel": d.midi_channel,
+                "hold_note": d.hold_note,
+                "cons_n": d.cons_n,
+                "cons_tolerance": round(float(d.cons_tolerance), 4),
             }
             for d in track.devices
         ],
@@ -109,6 +115,9 @@ def read_track(path: Path) -> Track:
                 exhale_note=int(d["exhale_note"]),
                 # Optional: tracks written before the field existed read as 1.
                 midi_channel=max(1, min(16, int(d.get("midi_channel", 1)))),
+                hold_note=int(d.get("hold_note", 0)),
+                cons_n=int(d.get("cons_n", 0)),
+                cons_tolerance=float(d.get("cons_tolerance", 0.30)),
             )
             for d in raw["devices"]
         ]
