@@ -14,6 +14,36 @@ from breath_midi.ui.qr import show_qr_popup
 # so the two always add up to the window and cannot drift apart.
 RIGHT_COL_W = 336
 
+# The transport row sits at the bottom left of the main column: four icons, no
+# label, no alignment.  Left-aligned on purpose — right-aligning meant measuring
+# a container while sizing its own contents, which fed back on itself and walked
+# the icons off the edge.  A fixed row cannot do that.
+_ICON_SIZE = 26
+_ICON_GAP = 10
+_TRANSPORT_ROW_H = 34
+TRANSPORT_ICONS = ("gb_track_load", "gb_track_export", "gb_track_stop", "gb_track_record")
+
+
+def build_transport_row() -> None:
+    """Load, save, stop, record — in that reading order."""
+    with dpg.group(horizontal=True, tag="gb_transport_row"):
+        _tray_button("gb_track_load", into_tray=True)
+        dpg.add_spacer(width=_ICON_GAP)
+        _tray_button("gb_track_export", into_tray=False)
+        dpg.add_spacer(width=_ICON_GAP)
+        build_stop_icon("gb_track_stop", size=_ICON_SIZE)
+        dpg.add_spacer(width=_ICON_GAP)
+        build_record_icon("gb_track_record", size=_ICON_SIZE)
+
+
+def refresh_transport(is_recording: bool) -> None:
+    """Hover highlight, and red while a take is rolling."""
+    for tag in ("gb_track_stop", "gb_track_record"):
+        if tag == "gb_track_record" and is_recording:
+            set_icon_color(tag, _ICON_REC)
+            continue
+        set_icon_color(tag, _ICON_HOVER if _icon_hovered(tag) else _ICON_IDLE)
+
 
 def _hovered(tag: str) -> bool:
     """A drawlist has no callback, so a click is an edge while it is hovered."""
@@ -23,6 +53,16 @@ _NET_ICON = 26
 _QR_ICON = 26
 from breath_midi.net_identity import NetworkWatcher
 from breath_midi.ui.widgets.hold_controls import build_hold_controls
+from breath_midi.ui.widgets.tray_icon import tray_button as _tray_button
+from breath_midi.ui.widgets.transport_icons import (
+    HOVER as _ICON_HOVER,
+    IDLE as _ICON_IDLE,
+    RECORDING as _ICON_REC,
+    build_record_icon,
+    build_stop_icon,
+    hovered as _icon_hovered,
+    set_icon_color,
+)
 from breath_midi.ui.widgets.qr_icon import (
     HOVER as QR_HOVER,
     IDLE as QR_IDLE,
@@ -157,15 +197,9 @@ class GroupBreathTab:
                             )
                             dpg.set_axis_limits("gb_yaxis", 0.0, 1.0)
 
-                    # Per-device strip panel (fills remaining height)
-                    self._bottom_panel.build()
-                    self._bottom_panel.set_right_column_width(RIGHT_COL_W)
-                    self._bottom_panel.set_transport_callbacks(
-                        on_load=self._on_load_track,
-                        on_stop=self._hub.stop_all_tracks,
-                        on_record=self._on_toggle_record,
-                        on_export=self._on_export_take,
-                    )
+                    # Per-device strip panel, leaving room for the transport row
+                    self._bottom_panel.build(height=-_TRANSPORT_ROW_H)
+                    build_transport_row()
 
                 # Right: collapsible Detection and Breath Guide sections.
                 with dpg.child_window(
@@ -269,8 +303,14 @@ class GroupBreathTab:
             self._on_learn_network()
         elif edge and qr_hovered("gb_qr_icon"):
             show_qr_popup(8001, self._net_label)
-        else:
-            self._bottom_panel.poll_transport_clicks(edge)
+        elif edge and _icon_hovered("gb_track_load"):
+            self._on_load_track()
+        elif edge and _icon_hovered("gb_track_export"):
+            self._on_export_take()
+        elif edge and _icon_hovered("gb_track_stop"):
+            self._hub.stop_all_tracks()
+        elif edge and _icon_hovered("gb_track_record"):
+            self._on_toggle_record()
         self._mouse_was_down = down
 
     # Right edge inset: the window and the container each add padding between
@@ -338,7 +378,7 @@ class GroupBreathTab:
             else:
                 self._refresh_series(snap, series_tag)
 
-        self._bottom_panel.refresh_transport(self._hub.is_recording)
+        refresh_transport(self._hub.is_recording)
         self._bottom_panel.update(snapshots)
         self._animation.update(dt)
 

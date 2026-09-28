@@ -1,11 +1,12 @@
 """
-The transport in the Devices header.
+The transport row.
 
-Four icons, right-aligned: load, save, stop, record. They sit with the device
-list rather than in the side column, because a loaded track *is* more devices.
+Four icons at the bottom left of the main column: load, save, stop, record.
 
-The two tray placeholders that shipped doing nothing are now the load and save
-halves, so no new icon art was needed for them.
+Deliberately left-aligned and fixed. The previous attempt right-aligned them by
+measuring a container while sizing that container's own contents, which fed back
+on itself and walked the icons off the edge behind a scrollbar. A fixed row
+cannot do that, and needs no per-frame measurement at all.
 """
 
 from __future__ import annotations
@@ -13,128 +14,75 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 import pytest
 
-from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+from breath_midi.ui.group_breath_tab import (
+    TRANSPORT_ICONS,
+    build_transport_row,
+    refresh_transport,
+)
 from breath_midi.ui.widgets.transport_icons import IDLE, RECORDING
-
-ICONS = ("gb_track_load", "gb_track_export", "gb_track_stop", "gb_track_record")
-
-
-class FakeRegistry:
-    def get(self, uuid):
-        return None
-
-    def all_entries(self):
-        return []
-
-    def connected_uuids(self):
-        return set()
 
 
 @pytest.fixture
-def panel():
-    from pathlib import Path
-
-    from breath_midi.config.store import ConfigStore
-
+def row():
     dpg.create_context()
-
-    class FakeHub:
-        registry = FakeRegistry()
-        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
-
     with dpg.window(tag="root"):
-        p = GroupBreathBottomPanel(FakeHub(), "root")  # type: ignore[arg-type]
-        p.build()
-    yield p
+        build_transport_row()
+    yield
     dpg.destroy_context()
 
 
-def test_all_four_icons_are_in_the_devices_header(panel):
-    header = dpg.get_alias_id("gb_bottom_header")
-    for tag in ICONS:
+def test_all_four_icons_exist(row):
+    for tag in TRANSPORT_ICONS:
         assert dpg.does_item_exist(tag), tag
-        # get_item_parent returns the alias when one is set, the id otherwise.
-        parent = dpg.get_item_parent(tag)
-        parent_id = dpg.get_alias_id(parent) if isinstance(parent, str) else parent
-        assert parent_id == header, f"{tag} is not in the Devices header"
 
 
-def test_icons_are_the_same_size(panel):
+def test_icons_are_in_reading_order(row):
+    children = dpg.get_item_children("gb_transport_row", 1)
+    order = [
+        dpg.get_item_alias(c)
+        for c in children
+        if dpg.get_item_alias(c) in TRANSPORT_ICONS
+    ]
+    assert order == list(TRANSPORT_ICONS)
+
+
+def test_icons_are_the_same_size(row):
     sizes = {
         (dpg.get_item_configuration(t)["width"], dpg.get_item_configuration(t)["height"])
-        for t in ICONS
+        for t in TRANSPORT_ICONS
     }
     assert len(sizes) == 1, f"icons differ in size: {sizes}"
 
 
-def test_a_push_spacer_exists_for_right_alignment(panel):
-    assert dpg.does_item_exist("gb_transport_push")
+def test_no_alignment_spacer_exists(row):
+    """The push spacer was the feedback loop. It should be gone for good."""
+    assert not dpg.does_item_exist("gb_transport_push")
 
 
-def test_record_icon_goes_red_while_recording(panel):
-    panel.refresh_transport(is_recording=True)
+def test_nothing_measures_a_container_to_place_the_row():
+    """The regression guard: placement must not depend on measured geometry."""
+    import inspect
+
+    src = inspect.getsource(build_transport_row)
+    for banned in ("get_viewport_client_width", "rect_size", "rect_min", "get_item_state"):
+        assert banned not in src, f"{banned} is back in the transport row"
+
+
+def test_record_icon_goes_red(row):
+    refresh_transport(is_recording=True)
     fill = dpg.get_item_configuration("gb_track_record_shape")["fill"]
     assert fill[0] == pytest.approx(RECORDING[0] / 255.0, abs=1e-3)
 
 
-def test_record_icon_returns_to_idle(panel):
-    panel.refresh_transport(is_recording=True)
-    panel.refresh_transport(is_recording=False)
+def test_record_icon_returns_to_idle(row):
+    refresh_transport(is_recording=True)
+    refresh_transport(is_recording=False)
     fill = dpg.get_item_configuration("gb_track_record_shape")["fill"]
     assert fill[0] == pytest.approx(IDLE[0] / 255.0, abs=1e-3)
 
 
-def test_clicks_route_to_the_callbacks(panel):
-    fired = []
-    panel.set_transport_callbacks(
-        on_load=lambda: fired.append("load"),
-        on_stop=lambda: fired.append("stop"),
-        on_record=lambda: fired.append("record"),
-        on_export=lambda: fired.append("export"),
-    )
-    # Nothing is hovered in a headless context, so no callback should fire.
-    panel.poll_transport_clicks(edge=True)
-    assert fired == []
-
-
-def test_polling_without_an_edge_does_nothing(panel):
-    fired = []
-    panel.set_transport_callbacks(
-        on_load=lambda: fired.append("load"),
-        on_stop=lambda: fired.append("stop"),
-        on_record=lambda: fired.append("record"),
-        on_export=lambda: fired.append("export"),
-    )
-    panel.poll_transport_clicks(edge=False)
-    assert fired == []
-
-
-def test_refresh_is_safe_before_callbacks_are_wired(panel):
-    panel.refresh_transport(is_recording=False)
-    panel.poll_transport_clicks(edge=True)
-
-
-def test_alignment_never_reads_the_panel_it_is_sizing(panel):
-    """
-    The regression this guards.
-
-    _right_align_transport used to measure the panel's own rect_size while
-    sizing that panel's content — a feedback loop that widened the gap every
-    frame until the icons sat off the right edge behind a scrollbar. The
-    measurement must come from the viewport, which contents cannot push.
-    """
-    import inspect
-
-    src = inspect.getsource(panel._right_align_transport)
-    assert "get_viewport_client_width" in src
-    assert "_panel_tag" not in src, "alignment is measuring the panel again"
-
-
-def test_alignment_is_safe_without_a_viewport(panel):
-    """Headless, and during the app's first frames, there is no viewport."""
-    panel._right_align_transport()
-
-
-def test_right_column_width_is_configurable(panel):
-    panel.set_right_column_width(400)
-    assert panel._right_col_w == 400
+def test_refresh_is_safe_before_the_row_is_built():
+    """Called every frame, including before the tab has been constructed."""
+    dpg.create_context()
+    refresh_transport(is_recording=False)
+    dpg.destroy_context()
