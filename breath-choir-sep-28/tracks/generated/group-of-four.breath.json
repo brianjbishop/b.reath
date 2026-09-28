@@ -1,7 +1,7 @@
 {
  "version": 1,
  "name": "Group of four",
- "created": "2026-09-27T16:03:27",
+ "created": "2026-09-27T22:16:58",
  "duration_s": 120.0,
  "source": "generated",
  "detection": {
@@ -26,7 +26,8 @@
     90
    ],
    "inhale_note": 54,
-   "exhale_note": 55
+   "exhale_note": 55,
+   "midi_channel": 1
   },
   {
    "uuid": "g2",
@@ -37,7 +38,8 @@
     220
    ],
    "inhale_note": 56,
-   "exhale_note": 57
+   "exhale_note": 57,
+   "midi_channel": 2
   },
   {
    "uuid": "g3",
@@ -48,7 +50,8 @@
     110
    ],
    "inhale_note": 58,
-   "exhale_note": 59
+   "exhale_note": 59,
+   "midi_channel": 3
   },
   {
    "uuid": "g4",
@@ -59,7 +62,8 @@
     220
    ],
    "inhale_note": 60,
-   "exhale_note": 61
+   "exhale_note": 61,
+   "midi_channel": 4
   }
  ],
  "samples": [

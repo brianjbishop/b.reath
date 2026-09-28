@@ -108,3 +108,28 @@ def test_the_feed_stops_once_the_last_track_does(hub, track_path):
     assert hub._feed is not None
     hub.stop_track(prefix)
     assert hub._feed is None, "drain thread outlived the last producer"
+
+
+def test_loading_applies_each_devices_stored_channel(hub, tmp_path: Path):
+    """A track carries its channel map; loading it should set it up for you."""
+    from breath_midi.tracks.file import Track, TrackDevice
+
+    from .test_presets import make_det
+
+    p = tmp_path / "chans.breath.json"
+    write_track(p, Track(
+        name="chans", created="now", duration_s=0.1, source="generated",
+        detection=make_det(),
+        devices=[TrackDevice("a", "Ana", (1, 2, 3), 54, 55, 1),
+                 TrackDevice("b", "Bo", (4, 5, 6), 56, 57, 2),
+                 TrackDevice("c", "Cy", (7, 8, 9), 58, 59, 3)],
+        samples=[(0.0, 0, 0.5), (0.0, 1, 0.5), (0.0, 2, 0.5)],
+    ))
+    prefix = hub.load_track(p)
+    time.sleep(0.3)
+    got = {
+        hub.registry.get(f"{prefix}:{u}").name:
+        hub.registry.get(f"{prefix}:{u}").midi_channel
+        for u in ("a", "b", "c")
+    }
+    assert got == {"Ana": 1, "Bo": 2, "Cy": 3}

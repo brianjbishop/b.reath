@@ -108,3 +108,25 @@ def test_rerunning_the_bake_is_safe(tmp_path: Path):
     bake_all(tmp_path)
     second = bake_all(tmp_path)
     assert {p.name for p in second} == EXPECTED
+
+
+def test_channels_start_at_one_and_increment(tmp_path: Path):
+    """First device on channel 1, each one after it a channel higher."""
+    bake_all(tmp_path)
+    track = read_track(tmp_path / "group-of-four.breath.json")
+    assert [d.midi_channel for d in track.devices] == [1, 2, 3, 4]
+
+
+def test_a_solo_track_is_on_channel_one(tmp_path: Path):
+    bake_all(tmp_path)
+    for name in ("slow-and-deep", "fast-and-shallow", "irregular", "box-breathing"):
+        track = read_track(tmp_path / f"{name}.breath.json")
+        assert [d.midi_channel for d in track.devices] == [1], name
+
+
+def test_numbering_is_per_track_not_global(tmp_path: Path):
+    """Each track stands alone, so it behaves the same however many are loaded."""
+    bake_all(tmp_path)
+    first = read_track(tmp_path / "dropout.breath.json").devices[0]
+    second = read_track(tmp_path / "group-of-four.breath.json").devices[0]
+    assert first.midi_channel == second.midi_channel == 1

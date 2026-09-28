@@ -152,3 +152,24 @@ def test_amplitudes_keep_four_decimals(tmp_path: Path):
     t = Track(**{**t.__dict__, "samples": [(0.0, 0, 0.123456789)]})
     write_track(p, t)
     assert read_track(p).samples[0][2] == pytest.approx(0.1235, abs=1e-6)
+
+
+def test_a_track_written_without_channels_still_loads(tmp_path: Path):
+    """The field is additive, so older files must not become unreadable."""
+    p = tmp_path / "old.breath.json"
+    write_track(p, sample_track())
+    raw = json.loads(p.read_text())
+    for d in raw["devices"]:
+        d.pop("midi_channel")
+    p.write_text(json.dumps(raw))
+    assert [d.midi_channel for d in read_track(p).devices] == [1, 1]
+
+
+def test_channels_are_clamped_on_read(tmp_path: Path):
+    p = tmp_path / "t.breath.json"
+    write_track(p, sample_track())
+    raw = json.loads(p.read_text())
+    raw["devices"][0]["midi_channel"] = 99
+    raw["devices"][1]["midi_channel"] = 0
+    p.write_text(json.dumps(raw))
+    assert [d.midi_channel for d in read_track(p).devices] == [16, 1]

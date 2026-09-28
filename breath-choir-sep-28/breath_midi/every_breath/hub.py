@@ -149,6 +149,7 @@ class EveryBreathHub:
             recorder.set_device_meta(
                 entry.uuid, entry.name, entry.color,
                 entry.inhale_note, entry.exhale_note,
+                entry.midi_channel,
             )
 
         from breath_midi.tracks.file import write_track
@@ -205,6 +206,7 @@ class EveryBreathHub:
             self.registry.get_or_create(uuid)
             self.registry.set_name(uuid, device.name)
             self.registry.set_color(uuid, device.color)
+            self.registry.set_midi_channel(uuid, device.midi_channel)
 
         source = TrackPlaybackSource(track, self._ensure_feed(), prefix=prefix)
         self._tracks[prefix] = source

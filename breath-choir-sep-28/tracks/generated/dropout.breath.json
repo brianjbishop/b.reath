@@ -1,7 +1,7 @@
 {
  "version": 1,
  "name": "Dropout",
- "created": "2026-09-27T16:03:27",
+ "created": "2026-09-27T22:16:58",
  "duration_s": 60.0,
  "source": "generated",
  "detection": {
@@ -26,7 +26,8 @@
     120
    ],
    "inhale_note": 54,
-   "exhale_note": 55
+   "exhale_note": 55,
+   "midi_channel": 1
   },
   {
    "uuid": "leaver",
@@ -37,7 +38,8 @@
     120
    ],
    "inhale_note": 56,
-   "exhale_note": 57
+   "exhale_note": 57,
+   "midi_channel": 2
   }
  ],
  "samples": [

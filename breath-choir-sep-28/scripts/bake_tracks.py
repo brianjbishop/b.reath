@@ -75,8 +75,24 @@ def gen_box(inhale_s, hold_s, cycles, lo=0.05, hi=0.9) -> list[float]:
     return out
 
 
-def _dev(uuid, name, color, inhale=54, exhale=55) -> TrackDevice:
-    return TrackDevice(uuid, name, color, inhale, exhale)
+def _dev(uuid, name, color, inhale=54, exhale=55, channel=1) -> TrackDevice:
+    return TrackDevice(uuid, name, color, inhale, exhale, channel)
+
+
+def _numbered(devices: list[TrackDevice]) -> list[TrackDevice]:
+    """
+    First device on channel 1, each one after it a channel higher.
+
+    Numbered within the track, not globally, so a track always behaves the same
+    however many are loaded.  Load two at once and their channels overlap — that
+    is the cost of tracks being self-contained, and the Ch field is there to
+    move one out of the way.
+    """
+    from dataclasses import replace
+
+    return [
+        replace(d, midi_channel=min(16, i + 1)) for i, d in enumerate(devices)
+    ]
 
 
 def _track(name, devices, series) -> Track:
@@ -120,7 +136,7 @@ def bake_all(out_dir: Path) -> list[Path]:
     ]
     for fname, title, device, amps in solos:
         path = out_dir / f"{fname}.breath.json"
-        write_track(path, _track(title, [device], [amps]))
+        write_track(path, _track(title, _numbered([device]), [amps]))
         written.append(path)
 
     # One performer stops early.  The gap is longer than the hub's 5s device
@@ -128,8 +144,8 @@ def bake_all(out_dir: Path) -> list[Path]:
     path = out_dir / "dropout.breath.json"
     write_track(path, _track(
         "Dropout",
-        [_dev("stayer", "Stayer", (150, 200, 120)),
-         _dev("leaver", "Leaver", (220, 120, 120), 56, 57)],
+        _numbered([_dev("stayer", "Stayer", (150, 200, 120)),
+                   _dev("leaver", "Leaver", (220, 120, 120), 56, 57)]),
         [gen_sine(5.0, 60, seed=3), gen_sine(5.0, 25, seed=4)],
     ))
     written.append(path)
@@ -138,10 +154,10 @@ def bake_all(out_dir: Path) -> list[Path]:
     path = out_dir / "group-of-four.breath.json"
     write_track(path, _track(
         "Group of four",
-        [_dev("g1", "Ana", (220, 120, 90), 54, 55),
-         _dev("g2", "Bo", (90, 160, 220), 56, 57),
-         _dev("g3", "Cy", (200, 200, 110), 58, 59),
-         _dev("g4", "Di", (150, 120, 220), 60, 61)],
+        _numbered([_dev("g1", "Ana", (220, 120, 90), 54, 55),
+                   _dev("g2", "Bo", (90, 160, 220), 56, 57),
+                   _dev("g3", "Cy", (200, 200, 110), 58, 59),
+                   _dev("g4", "Di", (150, 120, 220), 60, 61)]),
         [gen_sine(5.0, 90, seed=5),
          gen_sine(6.0, 90, seed=6),
          gen_sine(4.5, 90, jitter=0.015, seed=7),

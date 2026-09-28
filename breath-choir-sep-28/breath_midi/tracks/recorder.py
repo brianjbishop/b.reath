@@ -55,7 +55,13 @@ class TrackRecorder:
         self._samples.append((now - self._t0, index, float(amp)))
 
     def set_device_meta(
-        self, uuid: str, name: str, color, inhale_note: int, exhale_note: int
+        self,
+        uuid: str,
+        name: str,
+        color,
+        inhale_note: int,
+        exhale_note: int,
+        midi_channel: int = 1,
     ) -> None:
         """
         Attach names, colours and notes, normally once at stop.
@@ -69,12 +75,13 @@ class TrackRecorder:
             color=tuple(int(c) for c in color),
             inhale_note=int(inhale_note),
             exhale_note=int(exhale_note),
+            midi_channel=int(midi_channel),
         )
 
     def to_track(self) -> Track:
         devices = [
             self._meta.get(
-                uuid, TrackDevice(uuid, uuid, _FALLBACK_COLOR, 54, 55)
+                uuid, TrackDevice(uuid, uuid, _FALLBACK_COLOR, 54, 55, 1)
             )
             for uuid in self._order
         ]

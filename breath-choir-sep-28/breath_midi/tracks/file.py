@@ -36,6 +36,10 @@ class TrackDevice:
     color: tuple[int, int, int]
     inhale_note: int
     exhale_note: int
+    # 1-16. Optional on read with a default of 1, so tracks written before this
+    # field existed still load — no version bump needed for a field that only
+    # adds information.
+    midi_channel: int = 1
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,7 @@ def write_track(path: Path, track: Track) -> None:
                 "color": list(d.color),
                 "inhale_note": d.inhale_note,
                 "exhale_note": d.exhale_note,
+                "midi_channel": d.midi_channel,
             }
             for d in track.devices
         ],
@@ -102,6 +107,8 @@ def read_track(path: Path) -> Track:
                 color=tuple(int(c) for c in d["color"]),
                 inhale_note=int(d["inhale_note"]),
                 exhale_note=int(d["exhale_note"]),
+                # Optional: tracks written before the field existed read as 1.
+                midi_channel=max(1, min(16, int(d.get("midi_channel", 1)))),
             )
             for d in raw["devices"]
         ]
