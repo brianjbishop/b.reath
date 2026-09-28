@@ -336,11 +336,14 @@ def bake_all(out_dir: Path) -> list[Path]:
     path = out_dir / "four-breathing.breath.json"
     write_track(path, _track(
         "Four breathing",
+        # CC mode by default: this track exists to be breathed into a dial, and
+        # 70-73 leaves everyday-four's 74-77 free so both can be loaded at once
+        # without two performers fighting over one controller.
         _numbered([
-            _dev("b1", "Mara", (220, 120, 90), 54, 55),
-            _dev("b2", "Ivo", (90, 160, 220), 56, 57),
-            _dev("b3", "Nadia", (200, 200, 110), 58, 59),
-            _dev("b4", "Tomas", (150, 120, 220), 60, 61),
+            _dev("b1", "Mara", (220, 120, 90), 54, 55, breath_cc=70, cc_mode=True),
+            _dev("b2", "Ivo", (90, 160, 220), 56, 57, breath_cc=71, cc_mode=True),
+            _dev("b3", "Nadia", (200, 200, 110), 58, 59, breath_cc=72, cc_mode=True),
+            _dev("b4", "Tomas", (150, 120, 220), 60, 61, breath_cc=73, cc_mode=True),
         ]),
         [
             # Slow and settled, the way someone breathes once they have stopped

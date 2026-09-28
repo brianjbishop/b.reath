@@ -223,3 +223,19 @@ def test_the_four_breathe_at_genuinely_different_rates(tmp_path: Path):
     spans = [max(v) - min(v) for v in per_device.values()]
     assert all(s > 0.3 for s in spans), "someone barely breathed"
     assert len({round(s, 1) for s in spans}) > 1, "all four have the same depth"
+
+
+def test_four_breathing_defaults_to_cc_mode(tmp_path: Path):
+    """It exists to be breathed into a dial, so it should load ready to do that."""
+    bake_all(tmp_path)
+    track = read_track(tmp_path / "four-breathing.breath.json")
+    assert all(d.cc_mode for d in track.devices)
+    assert [d.breath_cc for d in track.devices] == [70, 71, 72, 73]
+
+
+def test_the_two_cc_tracks_do_not_share_controllers(tmp_path: Path):
+    """Both can be loaded at once; overlapping CCs would have them fight."""
+    bake_all(tmp_path)
+    a = {d.breath_cc for d in read_track(tmp_path / "four-breathing.breath.json").devices}
+    b = {d.breath_cc for d in read_track(tmp_path / "everyday-four.breath.json").devices}
+    assert not (a & b), f"both tracks use {sorted(a & b)}"

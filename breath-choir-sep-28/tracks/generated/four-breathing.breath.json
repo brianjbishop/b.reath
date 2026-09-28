@@ -1,7 +1,7 @@
 {
  "version": 1,
  "name": "Four breathing",
- "created": "2026-09-28T02:46:10",
+ "created": "2026-09-28T02:57:56",
  "duration_s": 120.0,
  "source": "generated",
  "detection": {
@@ -31,8 +31,8 @@
    "hold_note": 0,
    "cons_n": 0,
    "cons_tolerance": 0.3,
-   "cc_mode": false,
-   "breath_cc": 74
+   "cc_mode": true,
+   "breath_cc": 70
   },
   {
    "uuid": "b2",
@@ -48,8 +48,8 @@
    "hold_note": 0,
    "cons_n": 0,
    "cons_tolerance": 0.3,
-   "cc_mode": false,
-   "breath_cc": 74
+   "cc_mode": true,
+   "breath_cc": 71
   },
   {
    "uuid": "b3",
@@ -65,8 +65,8 @@
    "hold_note": 0,
    "cons_n": 0,
    "cons_tolerance": 0.3,
-   "cc_mode": false,
-   "breath_cc": 74
+   "cc_mode": true,
+   "breath_cc": 72
   },
   {
    "uuid": "b4",
@@ -82,8 +82,8 @@
    "hold_note": 0,
    "cons_n": 0,
    "cons_tolerance": 0.3,
-   "cc_mode": false,
-   "breath_cc": 74
+   "cc_mode": true,
+   "breath_cc": 73
   }
  ],
  "samples": [

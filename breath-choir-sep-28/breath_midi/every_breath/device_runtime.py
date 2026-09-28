@@ -75,8 +75,10 @@ class DeviceRuntime:
             self._config,
             strategies=self._current_strategies(),
         )
-        self._router = MidiRouter(self._config, midi=shared_sink)
-        self._phase: Phase = Phase.REST
+        # Must come before the router is built: the router reads
+        # cfg.midi.channel once, and a channel arriving at construction
+        # would otherwise never reach it — only a later set_midi_channel
+        # would, which is why this survived a test that set it afterwards.
         # The router reads cfg.midi.channel, so CC goes out on whatever the
         # device config says.  Without this every device's CC would land on
         # channel 1 however the Ch field was set — notes would route per device
@@ -90,6 +92,8 @@ class DeviceRuntime:
                 ),
             )
 
+        self._router = MidiRouter(self._config, midi=shared_sink)
+        self._phase: Phase = Phase.REST
         # midi_channel is 1-16; the wire is 0-15. This and set_midi_channel
         # are the only two places that conversion happens.
         self._voice = BreathVoice(

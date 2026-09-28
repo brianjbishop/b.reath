@@ -192,3 +192,47 @@ def test_the_breath_dial_sweeps_its_range():
     _hub, sink = breathing_hub(breath_cc=74)
     values = [v for _c, cc, v in sink.cc if cc == 74]
     assert max(values) - min(values) > 80, "the dial barely moved"
+
+
+def test_cc_uses_a_channel_supplied_at_construction():
+    """
+    The case the earlier test missed.
+
+    test_cc_goes_out_on_the_devices_channel sets the channel after the device
+    connects. A loaded track seeds it before, so the runtime is built with it —
+    and the router was constructed above that patch, so it never saw it. Every
+    dial in a four-performer track landed on channel 1.
+    """
+    import time
+    from pathlib import Path
+
+    from breath_midi.every_breath.hub import EveryBreathHub
+
+    sink = SpySink()
+    hub = EveryBreathHub(config=base_config(), osc_port=8820)
+    hub._midi_sink = sink
+    root = Path(__file__).parent.parent
+    hub.load_track(root / "tracks" / "generated" / "four-breathing.breath.json")
+    time.sleep(3)
+    hub.stop_all_tracks()
+
+    channels = {c for c, _cc, _v in sink.cc}
+    assert channels == {0, 1, 2, 3}, f"dials landed on channels {sorted(channels)}"
+
+
+def test_each_performer_drives_its_own_controller():
+    import time
+    from pathlib import Path
+
+    from breath_midi.every_breath.hub import EveryBreathHub
+
+    sink = SpySink()
+    hub = EveryBreathHub(config=base_config(), osc_port=8821)
+    hub._midi_sink = sink
+    root = Path(__file__).parent.parent
+    hub.load_track(root / "tracks" / "generated" / "four-breathing.breath.json")
+    time.sleep(3)
+    hub.stop_all_tracks()
+
+    pairs = {(c, cc) for c, cc, _v in sink.cc}
+    assert pairs == {(0, 70), (1, 71), (2, 72), (3, 73)}, sorted(pairs)
