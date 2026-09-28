@@ -59,6 +59,113 @@ def gen_sine(period_s, seconds, lo=0.1, hi=0.9, jitter=0.0, seed=0) -> list[floa
     return out
 
 
+def _smoothstep(x: float) -> float:
+    x = _clamp(x)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def _noise1d(seed: int):
+    """
+    Smooth value noise in 0..1, the way p5's noise() behaves.
+
+    The point is *drift*, not hiss.  gen_sine adds a fresh Gaussian to every
+    sample, which is what a noisy sensor looks like — it does not make a breath
+    read as human.  What does is the rate and the depth wandering slowly from
+    one cycle to the next, which is what this gives: a value that changes
+    smoothly because neighbouring integers are interpolated rather than drawn
+    independently.
+    """
+    rng = random.Random(seed)
+    table = [rng.random() for _ in range(256)]
+
+    def at(x: float) -> float:
+        i = int(math.floor(x))
+        f = x - i
+        a, b = table[i % 256], table[(i + 1) % 256]
+        return a + (b - a) * _smoothstep(f)
+
+    return at
+
+
+def gen_human(
+    period_s: float,
+    seconds: float,
+    lo: float = 0.12,
+    hi: float = 0.88,
+    inhale_frac: float = 0.35,
+    pause_frac: float = 0.12,
+    period_jitter: float = 0.22,
+    depth_jitter: float = 0.16,
+    sigh_every: int = 0,
+    sensor_noise: float = 0.004,
+    seed: int = 0,
+) -> list[float]:
+    """
+    A breath that reads as a person rather than an oscillator.
+
+    Four things separate this from a sine, and all four come from watching real
+    breathing rather than from making the maths prettier:
+
+    * The rate wanders.  Nobody breathes on a metronome, and a fixed period is
+      the single biggest tell.  period_jitter drifts it smoothly.
+    * The depth wanders too, by its own slower noise, so some breaths are
+      fuller than others without any of them looking like a mistake.
+    * In and out are not equal.  At rest the exhale runs roughly twice the
+      inhale, which is what inhale_frac sets.
+    * There is a pause at the bottom.  Resting breathing rests after the
+      exhale, not after the inhale, and that small flat patch at the valley is
+      a large part of why a recording sounds alive.
+
+    sigh_every adds a deeper breath every N cycles, which most people do
+    without noticing.  sensor_noise is a touch of hiss on top — real phone data
+    is never perfectly smooth, and the detector should not be tuned against
+    something cleaner than it will ever see.
+    """
+    rate_noise = _noise1d(seed * 7919 + 1)
+    depth_noise = _noise1d(seed * 7919 + 2)
+    rng = random.Random(seed * 7919 + 3)
+
+    out: list[float] = []
+    t = 0.0
+    cycle_index = 0
+    n = int(seconds * HZ)
+
+    while len(out) < n:
+        # This cycle's length and depth, drifting slowly rather than jumping.
+        drift = rate_noise(t * 0.06) - 0.5
+        period = max(1.2, period_s * (1.0 + period_jitter * 2.0 * drift))
+        depth = 1.0 + depth_jitter * 2.0 * (depth_noise(t * 0.05) - 0.5)
+        if sigh_every and cycle_index % sigh_every == sigh_every - 1:
+            depth *= 1.35                      # the breath you take without noticing
+
+        span = (hi - lo) * min(1.0, depth)
+        top = _clamp(lo + span)
+
+        steps = max(2, int(period * HZ))
+        rise = max(1, int(steps * inhale_frac))
+        pause = max(0, int(steps * pause_frac))
+        fall = max(1, steps - rise - pause)
+
+        for i in range(steps):
+            if len(out) >= n:
+                break
+            if i < rise:
+                shaped = _smoothstep(i / rise)
+            elif i < rise + fall:
+                shaped = 1.0 - _smoothstep((i - rise) / fall)
+            else:
+                shaped = 0.0                   # the rest after the exhale
+            v = lo + (top - lo) * shaped
+            if sensor_noise:
+                v += rng.gauss(0.0, sensor_noise)
+            out.append(_clamp(v))
+
+        t += period
+        cycle_index += 1
+
+    return out[:n]
+
+
 def gen_box(inhale_s, hold_s, cycles, lo=0.05, hi=0.9) -> list[float]:
     """Inhale, hold full, exhale, hold empty."""
     def ramp(a, b, secs):
@@ -218,6 +325,42 @@ def bake_all(out_dir: Path) -> list[Path]:
          gen_speech(1.0, 3.0, 90, 0.28, 0.72),
          gen_sigh(4.5, 90, 0.28, 0.62, every=4, sigh_hi=0.95, seed=9),
          gen_sine(6.5, 90, 0.38, 0.62, jitter=0.004, seed=10)],
+    ))
+    written.append(path)
+
+    # Four people breathing, rather than four oscillators.  This is the one to
+    # tune detection against: every cycle differs in length and depth, the
+    # exhale runs longer than the inhale, there is a rest at the bottom, and
+    # there is enough sensor hiss that the dials are not being set against
+    # something cleaner than a phone will ever send.
+    path = out_dir / "four-breathing.breath.json"
+    write_track(path, _track(
+        "Four breathing",
+        _numbered([
+            _dev("b1", "Mara", (220, 120, 90), 54, 55),
+            _dev("b2", "Ivo", (90, 160, 220), 56, 57),
+            _dev("b3", "Nadia", (200, 200, 110), 58, 59),
+            _dev("b4", "Tomas", (150, 120, 220), 60, 61),
+        ]),
+        [
+            # Slow and settled, the way someone breathes once they have stopped
+            # thinking about it.
+            gen_human(6.4, 120, lo=0.10, hi=0.90, inhale_frac=0.34,
+                      pause_frac=0.14, period_jitter=0.16, seed=11),
+            # Quicker and shallower — nervous, or simply a smaller breath.
+            gen_human(3.6, 120, lo=0.18, hi=0.62, inhale_frac=0.40,
+                      pause_frac=0.08, period_jitter=0.26, seed=12),
+            # Irregular: the rate wanders a long way, which is what the
+            # consistency gate exists to notice.
+            gen_human(5.0, 120, lo=0.12, hi=0.82, inhale_frac=0.32,
+                      pause_frac=0.12, period_jitter=0.45, depth_jitter=0.30,
+                      seed=13),
+            # A deeper breath every fourth cycle, which most people do without
+            # noticing they are doing it.
+            gen_human(5.4, 120, lo=0.14, hi=0.80, inhale_frac=0.30,
+                      pause_frac=0.16, period_jitter=0.20, sigh_every=4,
+                      seed=14),
+        ],
     ))
     written.append(path)
 

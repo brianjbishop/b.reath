@@ -27,6 +27,7 @@ EXPECTED = {
     "dropout.breath.json",
     "group-of-four.breath.json",
     "everyday-four.breath.json",
+    "four-breathing.breath.json",
 }
 
 
@@ -147,3 +148,78 @@ def test_numbering_is_per_track_not_global(tmp_path: Path):
     first = read_track(tmp_path / "dropout.breath.json").devices[0]
     second = read_track(tmp_path / "group-of-four.breath.json").devices[0]
     assert first.midi_channel == second.midi_channel == 1
+
+
+# ── breathing that reads as a person ─────────────────────────────────────────
+
+
+def test_a_human_breath_does_not_keep_a_fixed_period():
+    """
+    The tell that separates a recording from an oscillator.
+
+    gen_sine adds a fresh Gaussian to every sample, which is sensor hiss, and
+    leaves every cycle exactly the same length. Nobody breathes on a metronome.
+    """
+    import statistics
+
+    from scripts.bake_tracks import HZ, gen_human, gen_sine
+
+    def cycle_lengths(series):
+        peaks = [
+            i for i in range(1, len(series) - 1)
+            if series[i] > series[i - 1] and series[i] >= series[i + 1]
+            and series[i] > 0.6
+        ]
+        gaps = [(peaks[i + 1] - peaks[i]) / HZ for i in range(len(peaks) - 1)]
+        return [g for g in gaps if g > 1.5]
+
+    human = cycle_lengths(gen_human(5.0, 120, seed=1))
+    sine = cycle_lengths(gen_sine(5.0, 120, seed=1))
+
+    assert statistics.pstdev(human) > 0.1, "human breathing was metronomic"
+    assert statistics.pstdev(sine) < 0.05, "the sine drifted, so this proves nothing"
+
+
+def test_a_human_breath_exhales_longer_than_it_inhales():
+    """At rest the exhale runs roughly twice the inhale."""
+    from scripts.bake_tracks import gen_human
+
+    # Sensor noise off: this measures the shape, and hiss adds up-ticks during
+    # the fall that have nothing to do with how long the exhale is.
+    s = gen_human(5.0, 60, inhale_frac=0.33, pause_frac=0.0,
+                  sensor_noise=0.0, seed=2)
+    rising = sum(1 for i in range(1, len(s)) if s[i] > s[i - 1])
+    falling = sum(1 for i in range(1, len(s)) if s[i] < s[i - 1])
+    assert falling > rising * 1.3, f"rise {rising} vs fall {falling}"
+
+
+def test_a_human_breath_rests_at_the_bottom_not_the_top():
+    """Resting breathing pauses after the exhale, which is where a hold shows up."""
+    from scripts.bake_tracks import gen_human
+
+    s = gen_human(5.0, 60, pause_frac=0.20, sensor_noise=0.0, seed=3)
+    lo, hi = min(s), max(s)
+    band = (hi - lo) * 0.1
+    near_bottom = sum(1 for v in s if v <= lo + band)
+    near_top = sum(1 for v in s if v >= hi - band)
+    assert near_bottom > near_top * 2, "the rest is not at the valley"
+
+
+def test_four_breathing_is_baked(tmp_path: Path):
+    bake_all(tmp_path)
+    track = read_track(tmp_path / "four-breathing.breath.json")
+    assert len(track.devices) == 4
+    assert track.duration_s >= 60
+    assert [d.midi_channel for d in track.devices] == [1, 2, 3, 4]
+
+
+def test_the_four_breathe_at_genuinely_different_rates(tmp_path: Path):
+    """A choir of four identical breathers is not a choir."""
+    bake_all(tmp_path)
+    track = read_track(tmp_path / "four-breathing.breath.json")
+    per_device: dict[int, list[float]] = {}
+    for _t, i, a in track.samples:
+        per_device.setdefault(i, []).append(a)
+    spans = [max(v) - min(v) for v in per_device.values()]
+    assert all(s > 0.3 for s in spans), "someone barely breathed"
+    assert len({round(s, 1) for s in spans}) > 1, "all four have the same depth"
