@@ -289,7 +289,26 @@ class GroupBreathBottomPanel:
 
             dpg.add_spacer(height=4)
 
-            # Row 4: Consistent breaths count (0 = gating off)
+            # Row 4: MIDI channel, 1-16. Sits above N because it answers a
+            # different question — where this performer goes, not whether they
+            # are allowed to sound.
+            with dpg.group(horizontal=True):
+                dpg.add_text("Ch:")
+                dpg.add_input_int(
+                    tag=f"gb_strip_ch_{snap.uuid}",
+                    default_value=snap.midi_channel,
+                    width=50,
+                    min_value=1,
+                    max_value=16,
+                    step=0,
+                    on_enter=True,
+                    callback=lambda s, a, u: self._on_channel_change(u, a),
+                    user_data=snap.uuid,
+                )
+
+            dpg.add_spacer(height=4)
+
+            # Row 5: Consistent breaths count (0 = gating off)
             with dpg.group(horizontal=True):
                 dpg.add_text("N:")
                 dpg.add_input_int(
@@ -443,6 +462,11 @@ class GroupBreathBottomPanel:
                 if current_show != snap.cc_mode:
                     dpg.configure_item(cc_val_row, show=snap.cc_mode)
 
+            ch_tag = f"gb_strip_ch_{uuid}"
+            if dpg.does_item_exist(ch_tag):
+                if int(dpg.get_value(ch_tag)) != snap.midi_channel:
+                    dpg.set_value(ch_tag, snap.midi_channel)
+
             cons_n_tag = f"gb_strip_cons_n_{uuid}"
             if dpg.does_item_exist(cons_n_tag):
                 if int(dpg.get_value(cons_n_tag)) != snap.cons_n:
@@ -549,6 +573,10 @@ class GroupBreathBottomPanel:
         toggle_tag = f"gb_strip_mode_toggle_{uuid}"
         if dpg.does_item_exist(toggle_tag):
             dpg.configure_item(toggle_tag, label="CC" if new_mode else "Note")
+
+    def _on_channel_change(self, uuid: str, value) -> None:
+        """Clamped in the registry too — the input can still be typed into."""
+        self._hub.set_midi_channel(uuid, int(value))
 
     def _on_cons_n_change(self, uuid: str, value: int) -> None:
         self._hub.set_cons_n(uuid, int(value))  # 0 = gating off

@@ -37,6 +37,7 @@ class DeviceUISnapshot:
     cc_mode: bool
     cc_value: int
     cons_n: int
+    midi_channel: int
     cons_tolerance: float
     consistent_gate_open: bool
     hold_note: int
@@ -95,6 +96,16 @@ class EveryBreathHub:
         if self._feed is not None:
             self._feed.stop()
             self._feed = None
+
+    def set_midi_channel(self, uuid: str, channel: int) -> None:
+        """Store the channel and move the live device to it."""
+        self.registry.set_midi_channel(uuid, channel)
+        entry = self.registry.get(uuid)
+        if entry is None:
+            return
+        runtime = self._runtimes.get(uuid)
+        if runtime is not None:
+            runtime.set_midi_channel(entry.midi_channel)
 
     # ── recording ────────────────────────────────────────────────────────────
 
@@ -349,6 +360,7 @@ class EveryBreathHub:
                     cc_mode=entry.cc_mode,
                     cc_value=entry.cc_value,
                     cons_n=entry.cons_n,
+                    midi_channel=entry.midi_channel,
                     cons_tolerance=entry.cons_tolerance,
                     consistent_gate_open=runtime.get_gate_open() if runtime is not None else True,
                     hold_note=entry.hold_note,
@@ -463,7 +475,9 @@ class EveryBreathHub:
                 entry.exhale_note,
                 hold_note=entry.hold_note,
             )
-            self._runtimes[uuid] = DeviceRuntime(device_cfg, self._midi_sink)
+            self._runtimes[uuid] = DeviceRuntime(
+                device_cfg, self._midi_sink, midi_channel=entry.midi_channel
+            )
             with self._lock:
                 self._waveform_bufs[uuid] = deque(maxlen=_WAVEFORM_MAXLEN)
         print(

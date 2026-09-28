@@ -53,6 +53,7 @@ def snapshot(uuid: str = "dev-1", phase: Phase = Phase.REST, **kw) -> DeviceUISn
         cons_tolerance=0.3,
         consistent_gate_open=True,
         hold_note=70,
+        midi_channel=1,
     )
     defaults.update(kw)
     return DeviceUISnapshot(**defaults)

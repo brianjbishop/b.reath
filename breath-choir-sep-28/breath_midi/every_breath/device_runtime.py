@@ -37,7 +37,12 @@ class DeviceRuntime:
     per performer for choir-level triggering, not continuous CC.
     """
 
-    def __init__(self, config: ConfigModel, shared_sink: MidiSink) -> None:
+    def __init__(
+        self,
+        config: ConfigModel,
+        shared_sink: MidiSink,
+        midi_channel: int | None = None,
+    ) -> None:
         self._shared_sink = shared_sink
         self._lock = threading.Lock()
         self._signal = SignalProcessor(config.signal)
@@ -71,9 +76,15 @@ class DeviceRuntime:
         )
         self._router = MidiRouter(self._config, midi=shared_sink)
         self._phase: Phase = Phase.REST
+        # midi_channel is 1-16; the wire is 0-15. This and set_midi_channel
+        # are the only two places that conversion happens.
         self._voice = BreathVoice(
             shared_sink,
-            channel=int(config.midi.channel),
+            channel=(
+                int(config.midi.channel)
+                if midi_channel is None
+                else max(0, min(15, int(midi_channel) - 1))
+            ),
             velocity=int(config.midi.default_velocity),
         )
         self._voice.set_notes(
@@ -194,10 +205,16 @@ class DeviceRuntime:
             self._voice.release()
 
     def set_midi_channel(self, channel: int) -> None:
-        """Move this device to another channel, releasing on the old one first."""
+        """
+        Move this device to another channel.  `channel` is 1-16.
+
+        Releases first, while _channel is still the old one, so the note-off
+        lands where the note-on did.  Sending it after the change would leave a
+        key held down on the old channel with nothing left to clear it.
+        """
         with self._lock:
             self._voice.release()
-            self._voice.set_channel(channel)
+            self._voice.set_channel(max(0, min(15, int(channel) - 1)))
 
     def set_cons_n(self, n: int) -> None:
         """Set consistent breaths streak target.  n=0 disables gating."""

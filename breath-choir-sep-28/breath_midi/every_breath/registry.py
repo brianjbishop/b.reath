@@ -50,6 +50,9 @@ class DeviceEntry:
     # holding down and plays nothing.  That is the default, and it is why there
     # is no separate enable flag: the note number carries it.
     hold_note: int = 0
+    # 1-16, the way MIDI is written wherever a musician reads it. Converted to
+    # the wire's 0-15 in exactly one place, where the voice is set.
+    midi_channel: int = 1
 
 
 class DeviceRegistry:
@@ -151,6 +154,15 @@ class DeviceRegistry:
         with self._lock:
             if uuid in self._entries:
                 self._entries[uuid] = replace(self._entries[uuid], cc_value=cc_value)
+
+    def set_midi_channel(self, uuid: str, channel: int) -> None:
+        """Clamped to 1-16. A device off the end of the range sends nowhere."""
+        with self._lock:
+            if uuid in self._entries:
+                self._entries[uuid] = replace(
+                    self._entries[uuid],
+                    midi_channel=max(1, min(16, int(channel))),
+                )
 
     def set_cons_n(self, uuid: str, n: int) -> None:
         with self._lock:
