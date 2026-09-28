@@ -50,3 +50,27 @@ def set_icon_color(tag: str, color) -> None:
 
 def hovered(tag: str) -> bool:
     return dpg.does_item_exist(tag) and dpg.is_item_hovered(tag)
+
+
+def build_clear_icon(tag: str, size: int = _SIZE) -> None:
+    """
+    An X: forget every device that is not currently sending.
+
+    Two strokes rather than a glyph, for the same reason as the others — a text
+    character cannot be recoloured or scaled to match.
+    """
+    with dpg.drawlist(width=size, height=size, tag=tag):
+        pad = size * 0.30
+        lo, hi = pad, size - pad
+        thickness = max(2.0, size * 0.09)
+        dpg.draw_line((lo, lo), (hi, hi), color=IDLE,
+                      thickness=thickness, tag=f"{tag}_shape")
+        dpg.draw_line((hi, lo), (lo, hi), color=IDLE,
+                      thickness=thickness, tag=f"{tag}_shape2")
+
+
+def set_clear_color(tag: str, color) -> None:
+    """The X is two strokes, so it needs both recoloured."""
+    for suffix in ("_shape", "_shape2"):
+        if dpg.does_item_exist(f"{tag}{suffix}"):
+            dpg.configure_item(f"{tag}{suffix}", color=color)

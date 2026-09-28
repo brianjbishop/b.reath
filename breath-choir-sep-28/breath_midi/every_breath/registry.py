@@ -111,6 +111,19 @@ class DeviceRegistry:
         with self._lock:
             self._connected.discard(uuid)
 
+    def remove(self, uuid: str) -> None:
+        """
+        Forget a device entirely.
+
+        mark_disconnected only takes a device out of the connected set; the
+        entry stays so a phone that drops and returns comes back to its own
+        name, notes and channel.  That is right for a performer and wrong for
+        the leftovers of a track that finished, which is what this is for.
+        """
+        with self._lock:
+            self._entries.pop(uuid, None)
+            self._connected.discard(uuid)
+
     def mark_all_disconnected(self) -> None:
         with self._lock:
             self._connected.clear()

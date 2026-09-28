@@ -233,6 +233,34 @@ class EveryBreathHub:
         for prefix in list(self._tracks):
             self.stop_track(prefix)
 
+    def clear_devices(self) -> int:
+        """
+        Stop every track and sweep the device list.  Returns how many went.
+
+        A device that is still sending is left alone — clearing a live phone
+        would only drop its name and channel and have it reappear a moment
+        later as a stranger.  Everything else goes: finished tracks, phones
+        that left, anything holding a strip for no reason.
+        """
+        self.stop_all_tracks()
+        connected = self.registry.connected_uuids()
+        gone = 0
+        for entry in list(self.registry.all_entries()):
+            if entry.uuid in connected:
+                continue
+            runtime = self._runtimes.pop(entry.uuid, None)
+            if runtime is not None:
+                try:
+                    runtime.release()
+                except Exception:
+                    pass
+            with self._lock:
+                self._waveform_bufs.pop(entry.uuid, None)
+            self._last_seen.pop(entry.uuid, None)
+            self.registry.remove(entry.uuid)
+            gone += 1
+        return gone
+
     @property
     def playing_tracks(self) -> list[str]:
         return sorted(self._tracks)

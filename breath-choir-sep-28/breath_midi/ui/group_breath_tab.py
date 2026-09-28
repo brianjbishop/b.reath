@@ -21,7 +21,10 @@ RIGHT_COL_W = 336
 _ICON_SIZE = 26
 _ICON_GAP = 10
 _TRANSPORT_ROW_H = 34
-TRANSPORT_ICONS = ("gb_track_load", "gb_track_export", "gb_track_stop", "gb_track_record")
+TRANSPORT_ICONS = (
+    "gb_track_load", "gb_track_export", "gb_track_stop",
+    "gb_track_record", "gb_track_clear",
+)
 
 
 def build_transport_row() -> None:
@@ -34,6 +37,8 @@ def build_transport_row() -> None:
         build_stop_icon("gb_track_stop", size=_ICON_SIZE)
         dpg.add_spacer(width=_ICON_GAP)
         build_record_icon("gb_track_record", size=_ICON_SIZE)
+        dpg.add_spacer(width=_ICON_GAP * 2)   # set apart: this one forgets things
+        build_clear_icon("gb_track_clear", size=_ICON_SIZE)
 
 
 def refresh_transport(is_recording: bool) -> None:
@@ -43,6 +48,10 @@ def refresh_transport(is_recording: bool) -> None:
             set_icon_color(tag, _ICON_REC)
             continue
         set_icon_color(tag, _ICON_HOVER if _icon_hovered(tag) else _ICON_IDLE)
+    set_clear_color(
+        "gb_track_clear",
+        _ICON_HOVER if _icon_hovered("gb_track_clear") else _ICON_IDLE,
+    )
 
 
 def _hovered(tag: str) -> bool:
@@ -58,9 +67,11 @@ from breath_midi.ui.widgets.transport_icons import (
     HOVER as _ICON_HOVER,
     IDLE as _ICON_IDLE,
     RECORDING as _ICON_REC,
+    build_clear_icon,
     build_record_icon,
     build_stop_icon,
     hovered as _icon_hovered,
+    set_clear_color,
     set_icon_color,
 )
 from breath_midi.ui.widgets.qr_icon import (
@@ -311,6 +322,9 @@ class GroupBreathTab:
             self._hub.stop_all_tracks()
         elif edge and _icon_hovered("gb_track_record"):
             self._on_toggle_record()
+        elif edge and _icon_hovered("gb_track_clear"):
+            gone = self._hub.clear_devices()
+            print(f"[Tracks] cleared {gone} device(s)", flush=True)
         self._mouse_was_down = down
 
     # Right edge inset: the window and the container each add padding between
