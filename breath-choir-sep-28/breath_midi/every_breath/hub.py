@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from collections import deque
 from dataclasses import dataclass
@@ -64,6 +65,9 @@ class EveryBreathHub:
         # prefix -> TrackPlaybackSource, for tracks currently in the choir.
         self._tracks: dict = {}
         self._track_seq = 0
+        # uuid -> monotonic time of its last sample, across every source.
+        self._last_seen: dict[str, float] = {}
+        self._device_timeout_s: float = 5.0
         self._recorder = None
         self._recordings_dir = (
             Path(__file__).resolve().parents[2] / "tracks" / "recordings"
@@ -82,7 +86,10 @@ class EveryBreathHub:
         """Started by whichever of the listener or a track needs it first."""
         if self._feed is None:
             self._feed = SampleFeed(
-                self._on_sample, self._on_new_device, self._on_timeout
+                self._on_sample,
+                self._on_new_device,
+                self._on_timeout,
+                on_idle=self._sweep_timeouts,
             )
             self._feed.start()
         return self._feed
@@ -255,7 +262,10 @@ class EveryBreathHub:
             port=self._osc_port,
             on_sample_cb=feed.submit_sample,
             on_new_device_cb=feed.submit_new_device,
-            on_timeout_cb=feed.submit_timeout,
+            # The hub sweeps for timeouts over the merged stream, so this
+            # source must not also fire them — one rule, one timer. See
+            # _sweep_timeouts.
+            on_timeout_cb=lambda _uuid: None,
         )
         # Bind before assigning to self._source so a failure leaves the hub
         # cleanly stopped rather than holding a half-started source.
@@ -465,6 +475,10 @@ class EveryBreathHub:
     # ── OSC callbacks (called from single OSC receive thread) ─────────────────
 
     def _on_new_device(self, uuid: str) -> None:
+        # Seed last-seen on announcement: playback announces every device before
+        # the first sample, and a device with no timestamp would otherwise be
+        # swept the moment the first idle tick came round.
+        self._last_seen[uuid] = time.monotonic()
         entry, is_new = self.registry.get_or_create(uuid)
         self.registry.mark_connected(uuid)
         if uuid not in self._runtimes:
@@ -485,6 +499,28 @@ class EveryBreathHub:
             f"inhale: {entry.inhale_note} exhale: {entry.exhale_note}"
         )
 
+    def set_device_timeout(self, seconds: float) -> None:
+        """How long a device may go quiet before it is treated as gone."""
+        self._device_timeout_s = max(0.05, float(seconds))
+
+    def _sweep_timeouts(self) -> None:
+        """
+        Drop devices that have gone quiet, whatever source they came from.
+
+        This lives here rather than in MultiDeviceOscSource because that source
+        only ever saw phones.  Playback posts to the feed directly and bypassed
+        it entirely, so a track's performers never disappeared and never
+        released their held notes — the shipped dropout track never dropped out.
+        The hub sees every sample from every source, so one rule covers both.
+        """
+        now = time.monotonic()
+        cutoff = self._device_timeout_s
+        for uuid in list(self.registry.connected_uuids()):
+            last = self._last_seen.get(uuid)
+            if last is None or (now - last) < cutoff:
+                continue
+            self._on_timeout(uuid)
+
     def _on_timeout(self, uuid: str) -> None:
         self.registry.mark_disconnected(uuid)
         # A device that stopped sending is holding a key down.  Release it here
@@ -501,6 +537,7 @@ class EveryBreathHub:
 
     def _on_sample(self, sample: BreathSample) -> None:
         uuid = sample.source_id
+        self._last_seen[uuid] = time.monotonic()
 
         # Fan out to the browser first, and unconditionally.  The visualization
         # shows breathing, not MIDI: a muted or soloed-out performer still draws,

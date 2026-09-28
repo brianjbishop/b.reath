@@ -3,9 +3,14 @@ Replay a track as extra performers in the choir.
 
 Playback is additive rather than a mode.  Recorded performers register as
 ordinary devices and mix with live phones, so they pick up colours, note
-assignment, mute and solo for free, and when a track ends they stop sending and
-the hub's existing 5s device timeout fades them out and releases their held
-notes.  Nothing downstream can tell a recording from a phone.
+assignment, mute and solo for free.  Nothing downstream can tell a recording
+from a phone.
+
+When a track ends its devices simply stop sending, and the hub's timeout sweep
+drops them and releases their held notes — see EveryBreathHub._sweep_timeouts.
+That sweep lives in the hub precisely because this module bypasses the OSC
+source, where the timeout used to live: for a while it did not apply here at
+all, so finished tracks stayed on screen holding keys down.
 
 Emitted uuids carry a per-load prefix.  A recording stores the uuid of the phone
 it was captured from, so without one, replaying a track while that same phone is

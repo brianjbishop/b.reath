@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from typing import Callable
 
 from breath_midi.types import BreathSample
@@ -42,10 +43,17 @@ class SampleFeed:
         on_sample: Callable[[BreathSample], None],
         on_new_device: Callable[[str], None],
         on_timeout: Callable[[str], None],
+        on_idle: Callable[[], None] | None = None,
+        idle_interval_s: float = 0.25,
     ) -> None:
         self._on_sample = on_sample
         self._on_new_device = on_new_device
         self._on_timeout = on_timeout
+        # Called from the drain thread on a timer, busy or not.  The device
+        # timeout sweep rides on this: it has to run when nothing is arriving,
+        # which is precisely when a device has gone quiet.
+        self._on_idle = on_idle
+        self._idle_interval_s = float(idle_interval_s)
         self._q: queue.Queue = queue.Queue(maxsize=_MAXSIZE)
         self._thread: threading.Thread | None = None
         self._running = False
@@ -97,10 +105,28 @@ class SampleFeed:
     # ── the one consumer ─────────────────────────────────────────────────────
 
     def _drain(self) -> None:
+        next_idle = time.monotonic() + self._idle_interval_s
         while True:
-            kind, payload = self._q.get()
-            if kind == _STOP or not self._running:
-                return
+            try:
+                kind, payload = self._q.get(timeout=self._idle_interval_s)
+            except queue.Empty:
+                kind, payload = None, None
+            else:
+                if kind == _STOP or not self._running:
+                    return
+
+            now = time.monotonic()
+            if self._on_idle is not None and now >= next_idle:
+                next_idle = now + self._idle_interval_s
+                try:
+                    self._on_idle()
+                except Exception as exc:
+                    print(f"[SampleFeed] idle callback raised: {exc!r}")
+
+            if kind is None:
+                if not self._running:
+                    return
+                continue
             try:
                 if kind == _SAMPLE:
                     self._on_sample(payload)
