@@ -1,5 +1,7 @@
 # Agent Handoff: breath-choir
 
+> **Superseded by [`agent-handoff-3.md`](agent-handoff-3.md).** This file records the single-device session. Do not follow its backlog or its “multi-source is not implemented yet” note. Every Breath, Group Breath, continuous CC, presets, and tracks all exist now.
+
 ## Mission and Vision
 - Build a reliable breath-to-MIDI controller driven by TOTEM (BLE/OSC) with fast live feedback in Dear PyGui.
 - Current product direction prioritizes **MIDI observability**: show what the sink actually sends, when it sends it, and which mapped notes are held.

@@ -89,6 +89,43 @@ def test_the_strip_shows_a_name_beside_each_note():
     dpg.destroy_context()
 
 
+def test_cc_mode_replaces_the_three_notes_with_one_number():
+    """The arrows belong to notes. CC mode is one circle and one controller."""
+    from pathlib import Path
+
+    import dearpygui.dearpygui as dpg
+
+    from breath_midi.config.store import ConfigStore
+    from breath_midi.ui.group_breath_bottom_panel import GroupBreathBottomPanel
+
+    from .test_rhombus_ui import snapshot
+
+    dpg.create_context()
+
+    class FakeHub:
+        registry = type("R", (), {"get": lambda self, u: None})()
+        _config = ConfigStore(Path(__file__).parent.parent / "config.toml").load()
+
+        def get_ui_snapshot(self):
+            return []
+
+    for tag in ("theme_circle_gray", "theme_circle_yellow", "theme_gate_green"):
+        with dpg.theme(tag=tag):
+            pass
+    with dpg.window(tag="root"):
+        with dpg.group(tag="gb_strip_row"):
+            pass
+        panel = GroupBreathBottomPanel(FakeHub(), "root")  # type: ignore[arg-type]
+        snap = snapshot(uuid="dev-cc", cc_mode=True, breath_cc=74)
+        panel._build_strip(snap)
+
+    u = snap.uuid
+    assert not dpg.is_item_shown(f"gb_strip_notes_{u}")
+    assert dpg.is_item_shown(f"gb_strip_cc_row_{u}")
+    assert dpg.get_value(f"gb_strip_cc_num_{u}") == 74
+    dpg.destroy_context()
+
+
 def test_the_name_follows_the_number():
     """Change the note, the name must follow — it is the reason this exists."""
     from pathlib import Path

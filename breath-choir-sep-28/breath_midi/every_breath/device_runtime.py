@@ -10,11 +10,6 @@ from breath_midi.signal.features import FeatureExtractor
 from breath_midi.signal.processor import SignalProcessor
 from breath_midi.triggers.engine import TriggerEngine
 from breath_midi.triggers.v1.consistent_breaths import ConsistentBreathsTrigger
-from breath_midi.triggers.v1.exhale_cc_onset import ExhaleCcOnsetTrigger
-from breath_midi.triggers.v1.exhale_onset import ExhaleOnsetTrigger
-from breath_midi.triggers.v1.hold_cc_onset import HoldCcOnsetTrigger
-from breath_midi.triggers.v1.inhale_cc_onset import InhaleCcOnsetTrigger
-from breath_midi.triggers.v1.inhale_onset import InhaleOnsetTrigger
 from breath_midi.triggers.v1.sustain_cc import (
     BreathCcTrigger,
     ExhaleSustainCcTrigger,
@@ -30,16 +25,13 @@ class DeviceRuntime:
 
     In note mode the phase drives a BreathVoice: inhale, hold and exhale each
     behave like a key held down, and exactly one is down at a time.  In CC mode
-    the phase fires one-shot CC messages through the trigger engine instead,
-    since CC has no on/off pairing to keep exclusive.
+    the breath amplitude drives continuous controller values through the trigger
+    engine.  CC has no on/off pairing, so there is no voice to keep exclusive.
 
     Either way output is gated by ConsistentBreathsTrigger.  When N=0 the gate
     is bypassed and MIDI always flows.  When N>0 the gate opens after N
     consistent breaths and closes when consistency is lost — and closing it
     releases the sounding note rather than stranding it.
-
-    Sustain CC is intentionally excluded — Every Breath tracks phase changes
-    per performer for choir-level triggering, not continuous CC.
     """
 
     def __init__(
@@ -52,9 +44,6 @@ class DeviceRuntime:
         self._lock = threading.Lock()
         self._signal = SignalProcessor(config.signal)
         self._features = FeatureExtractor(config.detection)
-        self._inh_cc = InhaleCcOnsetTrigger()
-        self._exh_cc = ExhaleCcOnsetTrigger()
-        self._hold_cc = HoldCcOnsetTrigger()
         # CC mode is continuous: the first two fields track amplitude within
         # their phase, the third tracks it all the way round.  The onset
         # triggers above sent one fixed value per phase change, which is a note
@@ -164,11 +153,9 @@ class DeviceRuntime:
         # Note mode is driven by BreathVoice, not by onset strategies — the
         # gate needs a single owner of the note state.  Only CC mode still
         # goes through the trigger engine, because CC has no on/off pairing.
-        cc = (
-            [self._inh_sustain, self._exh_sustain, self._breath_cc]
-            if self._cc_mode
-            else []
-        )
+        # One controller follows the whole breath. The phase-gated dials are
+        # not part of this mode: the strip shows a single number.
+        cc = [self._breath_cc] if self._cc_mode else []
         return cc + [self._cons]
 
     # ── public controls ───────────────────────────────────────────────────────
@@ -196,7 +183,7 @@ class DeviceRuntime:
             )
 
     def set_output_mode(self, cc_mode: bool) -> None:
-        """Switch between note-onset mode (default) and CC-onset mode."""
+        """Switch between held notes (default) and continuous CC."""
         with self._lock:
             self._cc_mode = cc_mode
             # Leaving note mode must not strand the sounding note.
@@ -211,7 +198,6 @@ class DeviceRuntime:
         reinterprets the numbers rather than adding three more.
         """
         with self._lock:
-            self._inh_cc.set_cc(cc_number, self._inh_cc._cc_value)
             self._config = replace(
                 self._config,
                 triggers=replace(
@@ -229,7 +215,6 @@ class DeviceRuntime:
     def set_exhale_cc(self, cc_number: int) -> None:
         """The CC number for the exhale dial."""
         with self._lock:
-            self._exh_cc.set_cc(cc_number, self._exh_cc._cc_value)
             self._config = replace(
                 self._config,
                 triggers=replace(
@@ -244,13 +229,6 @@ class DeviceRuntime:
                 self._config, strategies=self._current_strategies()
             )
 
-    def set_cc_value(self, cc_value: int) -> None:
-        """Update the CC value fired by every CC onset trigger."""
-        with self._lock:
-            self._inh_cc.set_cc(self._inh_cc._cc_number, cc_value)
-            self._exh_cc.set_cc(self._exh_cc._cc_number, cc_value)
-            self._hold_cc.set_cc(self._hold_cc._cc_number, cc_value)
-
     def set_hold_cc(self, cc_number: int) -> None:
         """
         The CC number for the whole-cycle dial — the third field.
@@ -260,7 +238,6 @@ class DeviceRuntime:
         the same sentinel a silent note uses.
         """
         with self._lock:
-            self._hold_cc.set_cc(cc_number, self._hold_cc._cc_value)
             self._breath_cc.set_cc(int(cc_number))
 
     def release(self) -> None:

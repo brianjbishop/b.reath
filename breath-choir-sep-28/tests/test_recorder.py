@@ -48,9 +48,13 @@ def test_devices_are_indexed_in_first_seen_order():
 def test_device_metadata_is_carried_through():
     r = TrackRecorder(make_det(), name="take 1")
     r.note("a", 0.1)
-    r.set_device_meta("a", "Ana", (10, 20, 30), 54, 55)
+    r.set_device_meta(
+        "a", "Ana", (10, 20, 30), 54, 55,
+        cc_mode=True, breath_cc=71,
+    )
     d = r.to_track().devices[0]
     assert (d.name, d.color, d.inhale_note, d.exhale_note) == ("Ana", (10, 20, 30), 54, 55)
+    assert (d.cc_mode, d.breath_cc) == (True, 71)
 
 
 def test_a_device_with_no_metadata_still_records():

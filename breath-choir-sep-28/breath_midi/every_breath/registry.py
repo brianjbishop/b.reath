@@ -41,7 +41,6 @@ class DeviceEntry:
     muted: bool = False
     soloed: bool = False
     cc_mode: bool = False
-    cc_value: int = 127
     # 0 = gate off. Consistency gating is opt-in; most pieces want every
     # breath to sound, and a closed gate is confusing to debug live.
     cons_n: int = 0
@@ -53,6 +52,9 @@ class DeviceEntry:
     # 1-16, the way MIDI is written wherever a musician reads it. Converted to
     # the wire's 0-15 in exactly one place, where the voice is set.
     midi_channel: int = 1
+    # The one controller CC mode sends. Separate from the three notes, so
+    # switching back to Note mode still has the notes you set. 0 is off.
+    breath_cc: int = 74
 
 
 class DeviceRegistry:
@@ -163,10 +165,13 @@ class DeviceRegistry:
             if uuid in self._entries:
                 self._entries[uuid] = replace(self._entries[uuid], cc_mode=cc_mode)
 
-    def set_cc_value(self, uuid: str, cc_value: int) -> None:
+    def set_breath_cc(self, uuid: str, cc_number: int) -> None:
         with self._lock:
             if uuid in self._entries:
-                self._entries[uuid] = replace(self._entries[uuid], cc_value=cc_value)
+                self._entries[uuid] = replace(
+                    self._entries[uuid],
+                    breath_cc=max(0, min(127, int(cc_number))),
+                )
 
     def set_midi_channel(self, uuid: str, channel: int) -> None:
         """Clamped to 1-16. A device off the end of the range sends nowhere."""

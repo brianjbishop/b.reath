@@ -48,7 +48,6 @@ def snapshot(uuid: str = "dev-1", phase: Phase = Phase.REST, **kw) -> DeviceUISn
         waveform=[0.1, 0.2, 0.3],
         active=True,
         cc_mode=False,
-        cc_value=127,
         cons_n=0,
         cons_tolerance=0.3,
         consistent_gate_open=True,

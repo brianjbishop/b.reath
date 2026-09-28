@@ -165,7 +165,7 @@ def breathing_hub(channel=3, breath_cc=74):
     hub._midi_sink = sink
     hub._on_new_device("phone-a")
     hub.set_midi_channel("phone-a", channel)
-    hub.set_hold_number("phone-a", breath_cc)
+    hub.set_breath_cc("phone-a", breath_cc)
     hub.set_cc_mode("phone-a", True)
     for i in range(250):
         amp = 0.5 - 0.45 * math.cos(2 * math.pi * i / 250)

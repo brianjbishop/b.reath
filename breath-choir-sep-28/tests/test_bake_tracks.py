@@ -26,6 +26,7 @@ EXPECTED = {
     "box-breathing.breath.json",
     "dropout.breath.json",
     "group-of-four.breath.json",
+    "everyday-four.breath.json",
 }
 
 
@@ -108,6 +109,22 @@ def test_rerunning_the_bake_is_safe(tmp_path: Path):
     bake_all(tmp_path)
     second = bake_all(tmp_path)
     assert {p.name for p in second} == EXPECTED
+
+
+def test_group_of_four_is_in_cc_mode_on_70_through_73(tmp_path: Path):
+    bake_all(tmp_path)
+    track = read_track(tmp_path / "group-of-four.breath.json")
+    assert [d.breath_cc for d in track.devices] == [70, 71, 72, 73]
+    assert all(d.cc_mode for d in track.devices)
+
+
+def test_everyday_four_is_four_ordinary_breaths(tmp_path: Path):
+    bake_all(tmp_path)
+    track = read_track(tmp_path / "everyday-four.breath.json")
+    assert [d.name for d in track.devices] == ["Rest", "Talk", "Sigh", "Sleep"]
+    assert [d.breath_cc for d in track.devices] == [74, 75, 76, 77]
+    assert all(d.cc_mode for d in track.devices)
+    assert len(track.devices) == 4
 
 
 def test_channels_start_at_one_and_increment(tmp_path: Path):

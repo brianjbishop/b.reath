@@ -1,7 +1,7 @@
 {
  "version": 1,
  "name": "Slow & Deep",
- "created": "2026-09-27T22:24:52",
+ "created": "2026-09-28T00:59:06",
  "duration_s": 120.0,
  "source": "generated",
  "detection": {
@@ -30,7 +30,9 @@
    "midi_channel": 1,
    "hold_note": 0,
    "cons_n": 0,
-   "cons_tolerance": 0.3
+   "cons_tolerance": 0.3,
+   "cc_mode": false,
+   "breath_cc": 74
   }
  ],
  "samples": [

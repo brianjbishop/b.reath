@@ -32,6 +32,21 @@ def _endpoints(phase: Phase, size: float) -> tuple[tuple[float, float], tuple[fl
     return (x0, mid), (x1, mid)  # HOLD — level
 
 
+def add_circle_label(
+    size: int = DEFAULT_SIZE,
+    color: tuple[int, int, int, int] = _LABEL_COLOR,
+    tag: str | None = None,
+) -> None:
+    """
+    A filled circle: the mark for one controller that follows the whole breath.
+
+    CC mode has a single number, so it does not use the phase arrows.
+    """
+    mid = size / 2.0
+    with dpg.drawlist(width=size, height=size, **({"tag": tag} if tag else {})):
+        dpg.draw_circle((mid, mid), size * 0.22, fill=color, color=color)
+
+
 def add_arrow_label(
     phase: Phase,
     size: int = DEFAULT_SIZE,

@@ -43,6 +43,8 @@ class TrackDevice:
     hold_note: int = 0             # 0 = the hold plays nothing
     cons_n: int = 0                # 0 = consistency gate off
     cons_tolerance: float = 0.30
+    cc_mode: bool = False          # one controller follows the whole breath
+    breath_cc: int = 74            # 0 = that controller is off
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,8 @@ def write_track(path: Path, track: Track) -> None:
                 "hold_note": d.hold_note,
                 "cons_n": d.cons_n,
                 "cons_tolerance": round(float(d.cons_tolerance), 4),
+                "cc_mode": bool(d.cc_mode),
+                "breath_cc": int(d.breath_cc),
             }
             for d in track.devices
         ],
@@ -118,6 +122,8 @@ def read_track(path: Path) -> Track:
                 hold_note=int(d.get("hold_note", 0)),
                 cons_n=int(d.get("cons_n", 0)),
                 cons_tolerance=float(d.get("cons_tolerance", 0.30)),
+                cc_mode=bool(d.get("cc_mode", False)),
+                breath_cc=max(0, min(127, int(d.get("breath_cc", 74)))),
             )
             for d in raw["devices"]
         ]

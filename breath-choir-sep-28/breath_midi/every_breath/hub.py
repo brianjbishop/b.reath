@@ -36,12 +36,12 @@ class DeviceUISnapshot:
     waveform: list[float]
     active: bool
     cc_mode: bool
-    cc_value: int
     cons_n: int
     midi_channel: int
     cons_tolerance: float
     consistent_gate_open: bool
     hold_note: int
+    breath_cc: int = 74
 
 
 class EveryBreathHub:
@@ -151,6 +151,7 @@ class EveryBreathHub:
                 entry.inhale_note, entry.exhale_note,
                 entry.midi_channel, entry.hold_note,
                 entry.cons_n, entry.cons_tolerance,
+                entry.cc_mode, entry.breath_cc,
             )
 
         from breath_midi.tracks.file import write_track
@@ -222,6 +223,8 @@ class EveryBreathHub:
             self.registry.set_hold_note(uuid, device.hold_note)
             self.registry.set_cons_n(uuid, device.cons_n)
             self.registry.set_cons_tolerance(uuid, device.cons_tolerance)
+            self.registry.set_breath_cc(uuid, device.breath_cc)
+            self.registry.set_cc_mode(uuid, device.cc_mode)
 
         source = TrackPlaybackSource(track, self._ensure_feed(), prefix=prefix)
         self._tracks[prefix] = source
@@ -413,7 +416,7 @@ class EveryBreathHub:
                     waveform=buf,
                     active=is_active,
                     cc_mode=entry.cc_mode,
-                    cc_value=entry.cc_value,
+                    breath_cc=entry.breath_cc,
                     cons_n=entry.cons_n,
                     midi_channel=entry.midi_channel,
                     cons_tolerance=entry.cons_tolerance,
@@ -451,13 +454,9 @@ class EveryBreathHub:
         if runtime is not None:
             runtime.set_output_mode(cc_mode)
             if cc_mode:
-                # Sync CC numbers from registry so the triggers use the
-                # displayed In#/Ex# values rather than their default 1/2.
                 entry = self.registry.get(uuid)
                 if entry is not None:
-                    runtime.set_inhale_cc(entry.inhale_note)
-                    runtime.set_exhale_cc(entry.exhale_note)
-                    runtime.set_hold_cc(entry.hold_note)
+                    runtime.set_hold_cc(entry.breath_cc)
 
     def set_inhale_number(self, uuid: str, value: int) -> None:
         entry = self.registry.get(uuid)
@@ -465,12 +464,9 @@ class EveryBreathHub:
             return
         self.registry.set_inhale_note(uuid, value)
         runtime = self._runtimes.get(uuid)
-        if runtime is None:
+        if runtime is None or entry.cc_mode:
             return
-        if entry.cc_mode:
-            runtime.set_inhale_cc(value)
-        else:
-            runtime.set_notes(value, entry.exhale_note, entry.hold_note)
+        runtime.set_notes(value, entry.exhale_note, entry.hold_note)
 
     def set_exhale_number(self, uuid: str, value: int) -> None:
         entry = self.registry.get(uuid)
@@ -478,32 +474,30 @@ class EveryBreathHub:
             return
         self.registry.set_exhale_note(uuid, value)
         runtime = self._runtimes.get(uuid)
-        if runtime is None:
+        if runtime is None or entry.cc_mode:
             return
-        if entry.cc_mode:
-            runtime.set_exhale_cc(value)
-        else:
-            runtime.set_notes(entry.inhale_note, value, entry.hold_note)
+        runtime.set_notes(entry.inhale_note, value, entry.hold_note)
 
     def set_hold_number(self, uuid: str, value: int) -> None:
-        """Set this device's hold note (or CC number).  0 means silent."""
+        """Set this device's hold note.  0 means silent."""
         entry = self.registry.get(uuid)
         if entry is None:
             return
         self.registry.set_hold_note(uuid, value)
         runtime = self._runtimes.get(uuid)
-        if runtime is None:
+        if runtime is None or entry.cc_mode:
             return
-        if entry.cc_mode:
-            runtime.set_hold_cc(value)
-        else:
-            runtime.set_notes(entry.inhale_note, entry.exhale_note, value)
+        runtime.set_notes(entry.inhale_note, entry.exhale_note, value)
 
-    def set_cc_value(self, uuid: str, value: int) -> None:
-        self.registry.set_cc_value(uuid, value)
+    def set_breath_cc(self, uuid: str, value: int) -> None:
+        """The one controller this device sends in CC mode.  0 is off."""
+        entry = self.registry.get(uuid)
+        if entry is None:
+            return
+        self.registry.set_breath_cc(uuid, value)
         runtime = self._runtimes.get(uuid)
         if runtime is not None:
-            runtime.set_cc_value(value)
+            runtime.set_hold_cc(value)
 
     def set_cons_n(self, uuid: str, n: int) -> None:
         self.registry.set_cons_n(uuid, n)
@@ -534,9 +528,13 @@ class EveryBreathHub:
                 entry.exhale_note,
                 hold_note=entry.hold_note,
             )
-            self._runtimes[uuid] = DeviceRuntime(
+            runtime = DeviceRuntime(
                 device_cfg, self._midi_sink, midi_channel=entry.midi_channel
             )
+            if entry.cc_mode:
+                runtime.set_output_mode(True)
+                runtime.set_hold_cc(entry.breath_cc)
+            self._runtimes[uuid] = runtime
             with self._lock:
                 self._waveform_bufs[uuid] = deque(maxlen=_WAVEFORM_MAXLEN)
         print(

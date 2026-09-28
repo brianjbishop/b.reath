@@ -2,7 +2,8 @@
 
 **Project**: Hive 10-Year Anniversary  
 **Stack**: Python 3.11+, Dear PyGui 2.3, mido, python-osc  
-**Entry point**: `Start.command` → `breath_midi/app.py`
+**Entry point**: `Start.command` → `breath_midi/app.py`  
+**Status**: current as of 2026-09-28. Supersedes `agent-handoff.md` and `agent-handoff-2.md`.
 
 ---
 
@@ -25,23 +26,29 @@ Every Breath and Group Breath share a single OSC listener (port 8001) and the sa
 ## Architecture overview
 
 ```
-iOS app  ──OSC UDP──►  MultiDeviceOscSource (port 8001)
-                               │
-                               ▼
-                        EveryBreathHub
+iOS app  ──OSC UDP──►  MultiDeviceOscSource (port 8001) ──submit──┐
+                                                                   │
+track file ──► TrackPlaybackSource ──submit───────────────────────┤
+                                                                   ▼
+                                                            SampleFeed
+                                                     (one drain thread)
+                                                                   │
+                                                                   ▼
+                                                            EveryBreathHub
                         ├── DeviceRegistry   (UUID → DeviceEntry, persistent across stop/start)
+                        ├── TrackRecorder    (optional tap: raw amplitude, before detection)
                         ├── DeviceRuntime × N  (one per UUID)
                         │   ├── SignalProcessor  (smoothing, gain, deadzone)
                         │   ├── FeatureExtractor (phase detection, cycle tracking)
-                        │   ├── TriggerEngine    (strategies → TriggerEvents)
-                        │   │   ├── InhaleOnsetTrigger / ExhaleOnsetTrigger  (note mode)
-                        │   │   ├── InhaleCcOnsetTrigger / ExhaleCcOnsetTrigger  (CC mode)
-                        │   │   └── ConsistentBreathsTrigger  (gate controller)
-                        │   └── MidiRouter       (TriggerEvent → mido message)
-                        └── MidoMidiSink         (shared, single port, one thread)
+                        │   ├── BreathVoice      (note mode: one key held per phase)
+                        │   ├── TriggerEngine    (CC mode + consistency gate)
+                        │   │   ├── BreathCcTrigger          (one controller, whole cycle)
+                        │   │   └── ConsistentBreathsTrigger (gate; never sent as MIDI)
+                        │   └── MidiRouter       (CC TriggerEvent → mido message)
+                        └── MidoMidiSink         (shared, single port)
 ```
 
-The OSC receive thread is single-threaded — all `DeviceRuntime.on_sample()` calls are sequential. `DeviceRuntime` uses a `threading.Lock` to protect TriggerEngine and CC strategy mutations called from the UI thread.
+Phones and playback are two producers. Both post into `SampleFeed`, and only the drain thread calls `DeviceRuntime.on_sample()`. That keeps the hub’s single-caller assumption without locking the MIDI path. `DeviceRuntime` still takes a `threading.Lock` around trigger and voice mutations that the UI thread can make.
 
 ---
 
@@ -73,16 +80,21 @@ The OSC receive thread is single-threaded — all `DeviceRuntime.on_sample()` ca
 | `breath_midi/every_breath/registry.py` | `DeviceRegistry` + `DeviceEntry` — persistent UUID→config map |
 | `breath_midi/every_breath/device_runtime.py` | `DeviceRuntime` — per-device signal→trigger→MIDI chain |
 | `breath_midi/every_breath/multi_osc.py` | `MultiDeviceOscSource` — single UDP socket, routes by UUID |
+| `breath_midi/feed.py` | `SampleFeed` — merges phones and playback onto one drain thread |
+| `breath_midi/tracks/file.py` | Track JSON: raw samples plus the dials that were set when captured |
+| `breath_midi/tracks/playback.py` | Replays a track as extra devices in the choir |
+| `breath_midi/tracks/recorder.py` | Copies live raw amplitude into a take |
+| `breath_midi/presets.py` | Named detection dial sets, separate from a track’s stored dials |
+| `breath_midi/midi/voice.py` | `BreathVoice` — note mode, one held note per phase |
 
 ### Trigger strategies
 | File | Role |
 |------|------|
-| `triggers/v1/inhale_onset.py` | NOTE_ON on inhale phase entry |
-| `triggers/v1/exhale_onset.py` | NOTE_ON on exhale phase entry |
-| `triggers/v1/inhale_cc_onset.py` | CC message on inhale entry (mutable cc_number/value) |
-| `triggers/v1/exhale_cc_onset.py` | CC message on exhale entry |
-| `triggers/v1/consistent_breaths.py` | Fires NOTE_ON/NOTE_OFF when breath streak reaches N |
-| `triggers/v1/sustain_cc.py` | Continuous CC proportional to breath amplitude |
+| `triggers/v1/inhale_onset.py` | NOTE_ON on inhale phase entry (Single Breath) |
+| `triggers/v1/exhale_onset.py` | NOTE_ON on exhale phase entry (Single Breath) |
+| `triggers/v1/consistent_breaths.py` | Gate only in Every/Group Breath: opens or closes, never routed to MIDI |
+| `triggers/v1/sustain_cc.py` | Continuous CC. Inhale and exhale are phase-gated; `BreathCcTrigger` follows the whole cycle |
+| `midi/voice.py` | Note mode for Every/Group Breath. Onset triggers are not what holds the key |
 
 ### UI
 | File | Role |
@@ -101,22 +113,24 @@ The OSC receive thread is single-threaded — all `DeviceRuntime.on_sample()` ca
 ## Data flow: Every Breath / Group Breath
 
 ```
-OSC packet arrives
-  └─► MultiDeviceOscSource._dispatch()
-        ├─ on_new_device_cb(uuid)  →  hub._on_new_device()
-        │     creates DeviceEntry (notes, color) + DeviceRuntime + waveform deque
-        ├─ on_timeout_cb(uuid)     →  hub._on_timeout()
-        │     marks device disconnected (entry persists in registry)
-        └─ on_sample_cb(sample)   →  hub._on_sample()
-              1. midi_sink.set_activity_source_id(uuid)
-              2. Check mute/solo state from registry
-              3. runtime.on_sample(sample, muted)
-                   a. SignalProcessor → ProcessedSample
-                   b. FeatureExtractor → FeatureFrame
-                   c. TriggerEngine.on_frame(frame) → [TriggerEvents]
-                   d. Intercept consistent_breaths events → update _gate_open
-                   e. Route onset events to MidiRouter (if gate_pass and not muted)
-              4. Append sample.amp to waveform deque
+OSC packet, or a sample from TrackPlaybackSource
+  └─► SampleFeed.submit_*()
+        └─ drain thread
+              ├─ new device  →  hub._on_new_device()
+              │     creates DeviceEntry + DeviceRuntime + waveform deque
+              ├─ idle tick   →  hub._sweep_timeouts()
+              │     any quiet source: mark disconnected, release its note
+              └─ sample      →  hub._on_sample()
+                    1. Publish raw amp to the browser WebSocket (mute does not hide it)
+                    2. If recording, TrackRecorder.note(uuid, raw amp)
+                    3. midi_sink.set_activity_source_id(uuid)
+                    4. Check mute/solo from the registry
+                    5. runtime.on_sample(sample, muted)
+                         a. SignalProcessor → FeatureExtractor
+                         b. TriggerEngine: consistency gate, and CC streams in CC mode
+                         c. Note mode: BreathVoice holds the note for the current phase
+                         d. CC mode: MidiRouter sends the CC events (gate open, not muted)
+                    6. Append sample.amp to the waveform deque
 
 UI thread (60 fps):
   hub.get_ui_snapshot() → [DeviceUISnapshot]   (reads registry + runtimes)
@@ -131,17 +145,19 @@ UI thread (60 fps):
 @dataclass(frozen=True)
 class DeviceEntry:
     uuid: str
-    inhale_note: int        # also used as CC number in CC mode
-    exhale_note: int
+    inhale_note: int        # note in Note mode; CC number in CC mode
+    exhale_note: int        # same dual use as inhale_note
     display_order: int
     color: tuple[int, int, int]   # golden-ratio hue, stable per UUID
     name: str               # defaults to uuid[:15], user-editable
     muted: bool = False
     soloed: bool = False    # exclusive: soloing one un-solos all others
-    cc_mode: bool = False   # Note onset vs CC onset
-    cc_value: int = 127     # CC value fired in CC mode
-    cons_n: int = 3         # consistent breath streak target (0 = gate off)
+    cc_mode: bool = False   # False: BreathVoice notes. True: continuous CC
+    cons_n: int = 0         # consistent breath streak target (0 = gate off)
     cons_tolerance: float = 0.30  # period + peak tolerance (single knob)
+    hold_note: int = 0      # 0 = the hold is silent
+    breath_cc: int = 74     # the one controller CC mode sends; 0 = off
+    midi_channel: int = 1   # 1-16 as a musician reads it; the wire value is channel - 1
 ```
 
 Mutations always use `dataclasses.replace()` — the dataclass is frozen and immutable.
@@ -150,22 +166,16 @@ Mutations always use `dataclasses.replace()` — the dataclass is frozen and imm
 
 ## Note assignment
 
-Devices are assigned F#maj7 note pairs in order of first connection:
+Devices get consecutive pairs from note 54, in order of first connection:
 
 ```python
-_DEVICE_NOTE_PAIRS = [
-    (54, 58),   # F#3 / Bb3
-    (61, 65),   # Db4 / F4
-    (73, 77),   # Db5 / F5
-    (85, 89),   # Db6 / F6
-    (97, 101),  # ...
-    (109, 113),
-]
-# Beyond 6 devices, wraps with +12 octave offset per full cycle
+_NOTE_BASE = 54
+# device 0 → 54/55, device 1 → 56/57, device N → 54 + 2N / 55 + 2N
 ```
 
-`inhale_note` = the note fired on inhale (or CC number in CC mode).  
-`exhale_note` = the note fired on exhale.
+An earlier F#maj7 table was removed so the registry does not bake in a chord. Harmony is the DAW’s job.
+
+`inhale_note`, `exhale_note`, and `hold_note` are the three notes on the strip. `0` is silent. CC mode does not reuse them. It sends `breath_cc` instead.
 
 ---
 
@@ -177,7 +187,7 @@ _DEVICE_NOTE_PAIRS = [
 
 These events are **never routed to MIDI** — they only update `_gate_open`.
 
-Onset triggers (inhale/exhale, note or CC) only fire when:
+The held note and the CC streams only go out when:
 ```python
 gate_pass = (cons_n == 0) or self._gate_open
 ```
@@ -191,12 +201,15 @@ The gate dot in the Group Breath strip panel: green = open, gray = closed.
 
 ## Output modes per device
 
-| Mode | Trigger on inhale | Trigger on exhale |
-|------|-------------------|-------------------|
-| **Note** (default) | `NOTE_ON` → `inhale_note` | `NOTE_ON` → `exhale_note` |
-| **CC** | `CC` → cc_number=`inhale_note`, value=`cc_value` | `CC` → cc_number=`exhale_note`, value=`cc_value` |
+The Note / CC button on each strip is the toggle. Note mode shows the three phase arrows. CC mode hides them and shows one circle and one number. That number is `breath_cc` (default 74). It follows the breath amplitude the whole way around, including the hold. The three notes are left alone, so switching back to Note restores them.
 
-Switching to CC mode via the "Note/CC" toggle button immediately syncs `inhale_note`/`exhale_note` as the CC numbers, so the displayed In#/Ex# values always match what is sent.
+`0` is off. Range, min, max, and curve are global (`CcConfig` in the Detection panel). Output is rate-limited by `midi.cc_rate_hz` (default 30).
+
+CC goes out on the device’s own channel. `MidiRouter` reads `cfg.midi.channel`, so `DeviceRuntime` writes the device channel into its config (1–16 on the strip, 0–15 on the wire). Notes do the same through `BreathVoice`.
+
+In Ableton, MIDI-map a dial, switch the strip to CC, and breathe. The circle's number (74 unless you change it) is the controller, on that device's channel. During a hold the amplitude is flat, so the dial sits still.
+
+Switching to CC mode releases any sounding note. CC has no note-off to send when you switch back.
 
 ---
 
@@ -236,7 +249,7 @@ circle button click
 
 Only one tab can be active at a time (single `_active` slot in `TabActivityManager`).
 
-`stop_listening()` closes the MIDI sink AND clears `_runtimes` + `_waveform_bufs` so that reconnecting devices always get fresh pipelines pointing at the new sink.
+`stop_listening()` releases every held note, then closes the MIDI sink and clears `_runtimes` + `_waveform_bufs` so reconnecting devices get fresh pipelines on the new sink.
 
 `DeviceRegistry` is **not** cleared on stop/start — colors, names, notes, and ordering persist for the session.
 
@@ -274,10 +287,21 @@ gb_container (full width/height child_window)
 
 ---
 
+## Presets and tracks
+
+Presets and a track’s stored dials are the same ten detection numbers with different meanings.
+
+- A **preset** (`presets/*.preset.toml`, via `breath_midi/presets.py`) is a dial set you named. Loading one replaces `config.detection` and nothing else. `config.toml` still autosaves the live dials on every knob turn, which is why a preset exists.
+- A **track** is a performance. The file stores raw `(t, device_index, amp)` plus the dials that happened to be set when it was captured, and each device's CC mode and controller number. Loading a track never applies the detection dials. It does restore CC mode. Timestamps are kept as recorded.
+- `tracks/generated/` is committed. `tracks/recordings/` is gitignored. Recording is refused while a track is playing. An empty take writes no file.
+- Playback uuids are prefixed (`pb1:<original uuid>`) so a recording does not merge with the live phone it was captured from, and so loading one track twice makes two performers.
+- Tracks do not loop. When a track ends, its devices stop sending and `_sweep_timeouts` drops them and releases held notes. The timeout used to live only in the OSC source, which is why a finished track once stayed on screen holding keys.
+
 ## Known constraints / gotchas
 
-- **Single OSC thread**: all `DeviceRuntime.on_sample()` calls are sequential. If per-device threads are ever introduced, the shared `MidoMidiSink` needs a lock or per-device sinks.
-- **mido port lifecycle**: `stop_listening()` always closes the sink. Opening the same port name again on `start_listening()` works reliably; leaving it open across stop/start can produce stale handles.
-- **Sustain CC excluded from Every Breath**: `DeviceRuntime` is intentionally limited to onset triggers. Sustain CC is single-device only (Single Breath tab).
+- **One caller, two producers**: `DeviceRuntime.on_sample()` runs only on the `SampleFeed` drain thread. A new source must `submit_*` into the feed. Do not call the hub sample path from another thread.
+- **Rate-limit state is per trigger context**, keyed by strategy id (`inhale_sustain_last_cc_t`, and the same pattern for the other two). Devices do not share a context. Two strategies in one test must not share one either, or they throttle each other.
+- **mido port lifecycle**: `stop_listening()` releases every held note, then closes the sink and clears `_runtimes`. The registry is not cleared. Opening the same port name again on `start_listening()` is the supported path.
+- **`apply_from_ui` must pass `viz`, `network`, and `cc`** when it rebuilds `ConfigModel`. Those sections have defaults, so omitting them resets the WebSocket settings, the learned router MAC, and the CC range on every knob turn.
 - **DPG 2.3**: `add_item_drop_callback` does not exist. Drag-to-reorder was replaced with `^`/`v` buttons (not currently exposed in Group Breath). `resizable_y` on child_window works for the plot/panel split.
-- **`cons_n` passed to ConsistentBreathsTrigger as `max(1, n)`**: the trigger itself doesn't handle n=0, so the runtime handles the bypass at the routing level.
+- **`cons_n` passed to ConsistentBreathsTrigger as `max(1, n)`**: the trigger itself doesn't handle n=0, so the runtime handles the bypass at the routing level. Default `cons_n` is 0 (gate off).

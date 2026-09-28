@@ -1,5 +1,13 @@
 # Agent Handoff: breath-choir (v2)
 
+> **Superseded by [`agent-handoff-3.md`](agent-handoff-3.md).** Kept as the record of the first Every Breath session. Several rules below are now wrong:
+>
+> - Group Breath is implemented. It is not a “Coming soon” placeholder.
+> - Note assignment is consecutive pairs from 54 (`54/55`, `56/57`, …), not `40 + N*2`.
+> - CC mode on a device strip sends continuous controller values that follow breath amplitude. The “don’t add sustain CC to `DeviceRuntime`” guardrail no longer applies.
+> - `stop_listening()` releases held notes and clears `_runtimes`. The registry (names, colors, notes, channels) still survives the stop.
+> - Live phones and track playback share one drain thread (`breath_midi/feed.py`). `DeviceRuntime.on_sample` is still single-caller, but that caller is the feed, not the OSC thread alone.
+
 **Supersedes:** `handoff/agent-handoff.md`
 **Session scope:** Every Breath tab implementation + bug fixes
 

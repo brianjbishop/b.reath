@@ -10,6 +10,7 @@ from breath_midi.types import Phase
 from breath_midi.ui.widgets.arrow_label import (
     DIM_COLOR,
     add_arrow_label,
+    add_circle_label,
     add_tolerance_label,
     set_glyph_color,
 )
@@ -345,89 +346,84 @@ class GroupBreathBottomPanel:
 
             dpg.add_spacer(height=4)
 
-            # Row 6: Inhale number (note or CC number)
-            with dpg.group(horizontal=True):
-                add_arrow_label(Phase.INHALE, size=16, tag=f"gb_lbl_in_{snap.uuid}")
-                dpg.add_input_int(
-                    tag=f"gb_strip_inh_num_{snap.uuid}",
-                    default_value=snap.inhale_note,
-                    width=60,
-                    min_value=0,
-                    max_value=127,
-                    step=0,
-                    on_enter=True,
-                    callback=lambda s, a, u: self._on_inhale_num_change(u, a),
-                    user_data=snap.uuid,
-                )
-                # The name Ableton shows for this number, so a drum pad can be
-                # matched without counting semitones.
-                dpg.add_text(
-                    note_label(snap.inhale_note),
-                    tag=f"gb_strip_inh_name_{snap.uuid}",
-                    color=(130, 130, 130),
-                )
+            # Note mode: one number per phase. Hidden while CC mode is on.
+            with dpg.group(tag=f"gb_strip_notes_{snap.uuid}", show=not snap.cc_mode):
+                with dpg.group(horizontal=True):
+                    add_arrow_label(Phase.INHALE, size=16, tag=f"gb_lbl_in_{snap.uuid}")
+                    dpg.add_input_int(
+                        tag=f"gb_strip_inh_num_{snap.uuid}",
+                        default_value=snap.inhale_note,
+                        width=60,
+                        min_value=0,
+                        max_value=127,
+                        step=0,
+                        on_enter=True,
+                        callback=lambda s, a, u: self._on_inhale_num_change(u, a),
+                        user_data=snap.uuid,
+                    )
+                    # The name Ableton shows for this number, so a drum pad can be
+                    # matched without counting semitones.
+                    dpg.add_text(
+                        note_label(snap.inhale_note),
+                        tag=f"gb_strip_inh_name_{snap.uuid}",
+                        color=(130, 130, 130),
+                    )
 
-            # Row 7: Exhale number (note or CC number)
-            with dpg.group(horizontal=True):
-                add_arrow_label(Phase.EXHALE, size=16, tag=f"gb_lbl_ex_{snap.uuid}")
-                dpg.add_input_int(
-                    tag=f"gb_strip_exh_num_{snap.uuid}",
-                    default_value=snap.exhale_note,
-                    width=60,
-                    min_value=0,
-                    max_value=127,
-                    step=0,
-                    on_enter=True,
-                    callback=lambda s, a, u: self._on_exhale_num_change(u, a),
-                    user_data=snap.uuid,
-                )
-                # The name Ableton shows for this number, so a drum pad can be
-                # matched without counting semitones.
-                dpg.add_text(
-                    note_label(snap.exhale_note),
-                    tag=f"gb_strip_exh_name_{snap.uuid}",
-                    color=(130, 130, 130),
-                )
+                with dpg.group(horizontal=True):
+                    add_arrow_label(Phase.EXHALE, size=16, tag=f"gb_lbl_ex_{snap.uuid}")
+                    dpg.add_input_int(
+                        tag=f"gb_strip_exh_num_{snap.uuid}",
+                        default_value=snap.exhale_note,
+                        width=60,
+                        min_value=0,
+                        max_value=127,
+                        step=0,
+                        on_enter=True,
+                        callback=lambda s, a, u: self._on_exhale_num_change(u, a),
+                        user_data=snap.uuid,
+                    )
+                    dpg.add_text(
+                        note_label(snap.exhale_note),
+                        tag=f"gb_strip_exh_name_{snap.uuid}",
+                        color=(130, 130, 130),
+                    )
 
-            # Row 7: hold number. 0 = silent, so no enable checkbox.
-            with dpg.group(horizontal=True):
-                add_arrow_label(Phase.HOLD, size=16, tag=f"gb_lbl_hd_{snap.uuid}")
-                dpg.add_input_int(
-                    tag=f"gb_strip_h_num_{snap.uuid}",
-                    default_value=snap.hold_note,
-                    width=60,
-                    min_value=0,
-                    max_value=127,
-                    step=0,
-                    on_enter=True,
-                    callback=lambda s, a, u: self._on_hold_num_change(u, a),
-                    user_data=snap.uuid,
-                )
-                # The name Ableton shows for this number, so a drum pad can be
-                # matched without counting semitones.
-                dpg.add_text(
-                    note_label(snap.hold_note),
-                    tag=f"gb_strip_h_name_{snap.uuid}",
-                    color=(130, 130, 130),
-                )
+                # 0 = the hold is silent, so no enable checkbox.
+                with dpg.group(horizontal=True):
+                    add_arrow_label(Phase.HOLD, size=16, tag=f"gb_lbl_hd_{snap.uuid}")
+                    dpg.add_input_int(
+                        tag=f"gb_strip_h_num_{snap.uuid}",
+                        default_value=snap.hold_note,
+                        width=60,
+                        min_value=0,
+                        max_value=127,
+                        step=0,
+                        on_enter=True,
+                        callback=lambda s, a, u: self._on_hold_num_change(u, a),
+                        user_data=snap.uuid,
+                    )
+                    dpg.add_text(
+                        note_label(snap.hold_note),
+                        tag=f"gb_strip_h_name_{snap.uuid}",
+                        color=(130, 130, 130),
+                    )
 
-            dpg.add_spacer(height=4)
-
-            # Row 8: CC value — only visible when CC mode on
+            # CC mode: one controller, following the breath the whole way around.
             with dpg.group(
                 horizontal=True,
-                tag=f"gb_strip_cc_val_row_{snap.uuid}",
+                tag=f"gb_strip_cc_row_{snap.uuid}",
                 show=snap.cc_mode,
             ):
-                dpg.add_text("Val:")
+                add_circle_label(size=16, tag=f"gb_lbl_cc_{snap.uuid}")
                 dpg.add_input_int(
-                    tag=f"gb_strip_cc_val_{snap.uuid}",
-                    default_value=snap.cc_value,
+                    tag=f"gb_strip_cc_num_{snap.uuid}",
+                    default_value=snap.breath_cc,
                     width=60,
                     min_value=0,
                     max_value=127,
                     step=0,
-                    callback=lambda s, a, u: self._on_cc_value_change(u, a),
+                    on_enter=True,
+                    callback=lambda s, a, u: self._on_breath_cc_change(u, a),
                     user_data=snap.uuid,
                 )
 
@@ -479,11 +475,11 @@ class GroupBreathBottomPanel:
                 if dpg.get_item_configuration(mode_toggle).get("label", "") != expected_label:
                     dpg.configure_item(mode_toggle, label=expected_label)
 
-            cc_val_row = f"gb_strip_cc_val_row_{uuid}"
-            if dpg.does_item_exist(cc_val_row):
-                current_show = dpg.get_item_configuration(cc_val_row).get("show", True)
-                if current_show != snap.cc_mode:
-                    dpg.configure_item(cc_val_row, show=snap.cc_mode)
+            notes_row = f"gb_strip_notes_{uuid}"
+            cc_row = f"gb_strip_cc_row_{uuid}"
+            if dpg.does_item_exist(notes_row) and dpg.is_item_shown(notes_row) == snap.cc_mode:
+                dpg.configure_item(notes_row, show=not snap.cc_mode)
+                dpg.configure_item(cc_row, show=snap.cc_mode)
 
             # The note names follow their numbers, wherever a change came from:
             # this panel, a loaded track, or a device reconnecting.
@@ -533,6 +529,11 @@ class GroupBreathBottomPanel:
             if dpg.does_item_exist(h_num):
                 if int(dpg.get_value(h_num)) != snap.hold_note:
                     dpg.set_value(h_num, snap.hold_note)
+
+            cc_num = f"gb_strip_cc_num_{uuid}"
+            if dpg.does_item_exist(cc_num):
+                if int(dpg.get_value(cc_num)) != snap.breath_cc:
+                    dpg.set_value(cc_num, snap.breath_cc)
 
     # ── interaction callbacks ─────────────────────────────────────────────────
 
@@ -628,8 +629,8 @@ class GroupBreathBottomPanel:
     def _on_hold_num_change(self, uuid: str, value: int) -> None:
         self._hub.set_hold_number(uuid, int(value))
 
-    def _on_cc_value_change(self, uuid: str, value: int) -> None:
-        self._hub.set_cc_value(uuid, int(value))
+    def _on_breath_cc_change(self, uuid: str, value: int) -> None:
+        self._hub.set_breath_cc(uuid, int(value))
 
     def _on_collapse_toggle(self) -> None:
         currently_shown = dpg.get_item_configuration(self._strip_container_tag).get("show", True)

@@ -39,9 +39,11 @@ def odd_track(path: Path) -> Path:
         detection=make_det(),
         devices=[
             TrackDevice("a", "Ana", (11, 22, 33), 90, 91, 9,
-                        hold_note=95, cons_n=5, cons_tolerance=0.42),
+                        hold_note=95, cons_n=5, cons_tolerance=0.42,
+                        cc_mode=True, breath_cc=70),
             TrackDevice("b", "Bo", (44, 55, 66), 100, 101, 12,
-                        hold_note=0, cons_n=3, cons_tolerance=0.11),
+                        hold_note=0, cons_n=3, cons_tolerance=0.11,
+                        cc_mode=False, breath_cc=0),
         ],
         samples=[(0.0, 0, 0.5), (0.0, 1, 0.5)],
     ))
@@ -55,6 +57,8 @@ def test_every_setting_round_trips_through_the_file(tmp_path: Path):
     assert (a.midi_channel, a.cons_n) == (9, 5)
     assert a.cons_tolerance == pytest.approx(0.42)
     assert (b.hold_note, b.cons_n) == (0, 3)
+    assert (a.cc_mode, a.breath_cc) == (True, 70)
+    assert (b.cc_mode, b.breath_cc) == (False, 0)
 
 
 def test_loading_restores_the_notes_not_the_auto_assigned_ones(hub, tmp_path: Path):
@@ -78,6 +82,18 @@ def test_loading_restores_the_gate_and_tolerance(hub, tmp_path: Path):
     entry = hub.registry.get(f"{prefix}:a")
     assert entry.cons_n == 5
     assert entry.cons_tolerance == pytest.approx(0.42)
+
+
+def test_loading_restores_cc_mode_and_the_controller(hub, tmp_path: Path):
+    prefix = hub.load_track(odd_track(tmp_path / "t.breath.json"))
+    time.sleep(0.3)
+    ana = hub.registry.get(f"{prefix}:a")
+    bo = hub.registry.get(f"{prefix}:b")
+    assert (ana.cc_mode, ana.breath_cc) == (True, 70)
+    assert (bo.cc_mode, bo.breath_cc) == (False, 0)
+    runtime = hub._runtimes[f"{prefix}:a"]
+    assert runtime._cc_mode is True
+    assert runtime._breath_cc.cc_number == 70
 
 
 def test_loading_restores_name_colour_and_channel(hub, tmp_path: Path):
@@ -105,10 +121,12 @@ def test_a_track_without_the_newer_fields_still_loads(hub, tmp_path: Path):
     p = odd_track(tmp_path / "t.breath.json")
     raw = json.loads(p.read_text())
     for d in raw["devices"]:
-        for key in ("hold_note", "cons_n", "cons_tolerance"):
+        for key in ("hold_note", "cons_n", "cons_tolerance", "cc_mode", "breath_cc"):
             d.pop(key, None)
     p.write_text(json.dumps(raw))
 
     track = read_track(p)
     assert track.devices[0].hold_note == 0
     assert track.devices[0].cons_n == 0
+    assert track.devices[0].cc_mode is False
+    assert track.devices[0].breath_cc == 74

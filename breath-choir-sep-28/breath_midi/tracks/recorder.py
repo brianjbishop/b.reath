@@ -65,6 +65,8 @@ class TrackRecorder:
         hold_note: int = 0,
         cons_n: int = 0,
         cons_tolerance: float = 0.30,
+        cc_mode: bool = False,
+        breath_cc: int = 74,
     ) -> None:
         """
         Attach names, colours and notes, normally once at stop.
@@ -82,6 +84,8 @@ class TrackRecorder:
             hold_note=int(hold_note),
             cons_n=int(cons_n),
             cons_tolerance=float(cons_tolerance),
+            cc_mode=bool(cc_mode),
+            breath_cc=max(0, min(127, int(breath_cc))),
         )
 
     def to_track(self) -> Track:

@@ -140,4 +140,4 @@ def test_hold_is_one_press_not_a_stream():
 def test_cc_mode_sends_cc_not_notes():
     sink = run_box(cc_mode=True)
     assert not sink.notes, "CC mode must not send notes"
-    assert HOLD_NOTE in {cc for _, cc, _ in sink.ccs}
+    assert {cc for _, cc, _ in sink.ccs} == {HOLD_NOTE}

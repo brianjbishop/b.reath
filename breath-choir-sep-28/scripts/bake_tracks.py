@@ -75,8 +75,42 @@ def gen_box(inhale_s, hold_s, cycles, lo=0.05, hi=0.9) -> list[float]:
     return out
 
 
-def _dev(uuid, name, color, inhale=54, exhale=55, channel=1) -> TrackDevice:
-    return TrackDevice(uuid, name, color, inhale, exhale, channel)
+def gen_speech(inhale_s, exhale_s, seconds, lo=0.25, hi=0.75) -> list[float]:
+    """A quick rise and a long fall: the breath people take while talking."""
+    cycle = inhale_s + exhale_s
+    out = []
+    for i in range(int(seconds * HZ)):
+        phase = (i * DT) % cycle
+        if phase < inhale_s:
+            v = lo + (hi - lo) * (phase / inhale_s)
+        else:
+            v = hi - (hi - lo) * ((phase - inhale_s) / exhale_s)
+        out.append(_clamp(v))
+    return out
+
+
+def gen_sigh(period_s, seconds, lo, hi, every=4, sigh_hi=0.95, seed=0) -> list[float]:
+    """Ordinary cycles, with one deeper breath every `every` cycles."""
+    base = gen_sine(period_s, seconds, lo, hi, seed=seed)
+    span = hi - lo
+    per = max(1, int(period_s * HZ))
+    out = []
+    for i, v in enumerate(base):
+        if (i // per) % every == every - 1 and span > 0:
+            out.append(_clamp(lo + (sigh_hi - lo) * ((v - lo) / span)))
+        else:
+            out.append(v)
+    return out
+
+
+def _dev(
+    uuid, name, color, inhale=54, exhale=55, channel=1, *,
+    breath_cc=74, cc_mode=False,
+) -> TrackDevice:
+    return TrackDevice(
+        uuid, name, color, inhale, exhale, channel,
+        breath_cc=breath_cc, cc_mode=cc_mode,
+    )
 
 
 def _numbered(devices: list[TrackDevice]) -> list[TrackDevice]:
@@ -154,14 +188,36 @@ def bake_all(out_dir: Path) -> list[Path]:
     path = out_dir / "group-of-four.breath.json"
     write_track(path, _track(
         "Group of four",
-        _numbered([_dev("g1", "Ana", (220, 120, 90), 54, 55),
-                   _dev("g2", "Bo", (90, 160, 220), 56, 57),
-                   _dev("g3", "Cy", (200, 200, 110), 58, 59),
-                   _dev("g4", "Di", (150, 120, 220), 60, 61)]),
+        _numbered([
+            _dev("g1", "Ana", (220, 120, 90), 54, 55, breath_cc=70, cc_mode=True),
+            _dev("g2", "Bo", (90, 160, 220), 56, 57, breath_cc=71, cc_mode=True),
+            _dev("g3", "Cy", (200, 200, 110), 58, 59, breath_cc=72, cc_mode=True),
+            _dev("g4", "Di", (150, 120, 220), 60, 61, breath_cc=73, cc_mode=True),
+        ]),
         [gen_sine(5.0, 90, seed=5),
          gen_sine(6.0, 90, seed=6),
          gen_sine(4.5, 90, jitter=0.015, seed=7),
          gen_box(3.0, 2.0, cycles=12)],
+    ))
+    written.append(path)
+
+    # Four ordinary ways of breathing, as opposed to the stylised group above.
+    # Rest is tidal, Talk is a short inhale and a long exhale, Sigh deepens
+    # every fourth cycle, Sleep is slower and shallower. Controllers 74–77 sit
+    # just above the group of four, so both tracks can be loaded together.
+    path = out_dir / "everyday-four.breath.json"
+    write_track(path, _track(
+        "Everyday four",
+        _numbered([
+            _dev("rest", "Rest", (140, 180, 160), 54, 55, breath_cc=74, cc_mode=True),
+            _dev("talk", "Talk", (180, 150, 110), 56, 57, breath_cc=75, cc_mode=True),
+            _dev("sigh", "Sigh", (170, 140, 180), 58, 59, breath_cc=76, cc_mode=True),
+            _dev("sleep", "Sleep", (120, 150, 190), 60, 61, breath_cc=77, cc_mode=True),
+        ]),
+        [gen_sine(4.0, 90, 0.30, 0.70, seed=8),
+         gen_speech(1.0, 3.0, 90, 0.28, 0.72),
+         gen_sigh(4.5, 90, 0.28, 0.62, every=4, sigh_hi=0.95, seed=9),
+         gen_sine(6.5, 90, 0.38, 0.62, jitter=0.004, seed=10)],
     ))
     written.append(path)
 
