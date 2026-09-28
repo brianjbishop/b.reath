@@ -41,3 +41,9 @@
 # real person was breathing, and this repo is public. Generated tracks ship;
 # recordings stay local.
 breath-choir-sep-28/tracks/recordings/
+
+# Downloaded sound effects: hundreds of MB of third-party audio, all re-fetchable
+# from the links in music/sfx/CREDITS.md, which stays tracked so the list of what
+# belongs there survives even though the files do not.
+breath-choir-sep-28/music/sfx/*
+!breath-choir-sep-28/music/sfx/CREDITS.md
