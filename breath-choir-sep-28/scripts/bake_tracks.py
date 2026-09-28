@@ -348,19 +348,19 @@ def bake_all(out_dir: Path) -> list[Path]:
         [
             # Slow and settled, the way someone breathes once they have stopped
             # thinking about it.
-            gen_human(6.4, 120, lo=0.10, hi=0.90, inhale_frac=0.34,
+            gen_human(6.4, 240, lo=0.10, hi=0.90, inhale_frac=0.34,
                       pause_frac=0.14, period_jitter=0.16, seed=11),
             # Quicker and shallower — nervous, or simply a smaller breath.
-            gen_human(3.6, 120, lo=0.18, hi=0.62, inhale_frac=0.40,
+            gen_human(3.6, 240, lo=0.18, hi=0.62, inhale_frac=0.40,
                       pause_frac=0.08, period_jitter=0.26, seed=12),
             # Irregular: the rate wanders a long way, which is what the
             # consistency gate exists to notice.
-            gen_human(5.0, 120, lo=0.12, hi=0.82, inhale_frac=0.32,
+            gen_human(5.0, 240, lo=0.12, hi=0.82, inhale_frac=0.32,
                       pause_frac=0.12, period_jitter=0.45, depth_jitter=0.30,
                       seed=13),
             # A deeper breath every fourth cycle, which most people do without
             # noticing they are doing it.
-            gen_human(5.4, 120, lo=0.14, hi=0.80, inhale_frac=0.30,
+            gen_human(5.4, 240, lo=0.14, hi=0.80, inhale_frac=0.30,
                       pause_frac=0.16, period_jitter=0.20, sigh_every=4,
                       seed=14),
         ],

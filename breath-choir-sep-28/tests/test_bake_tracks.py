@@ -209,7 +209,7 @@ def test_four_breathing_is_baked(tmp_path: Path):
     bake_all(tmp_path)
     track = read_track(tmp_path / "four-breathing.breath.json")
     assert len(track.devices) == 4
-    assert track.duration_s >= 60
+    assert track.duration_s == 240.0, "four minutes, long enough to tune against"
     assert [d.midi_channel for d in track.devices] == [1, 2, 3, 4]
 
 
