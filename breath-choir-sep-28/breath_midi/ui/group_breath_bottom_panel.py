@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import dearpygui.dearpygui as dpg
 
+from breath_midi.midi.note_names import note_label
+
 
 from breath_midi.every_breath.hub import DeviceUISnapshot, EveryBreathHub
 from breath_midi.types import Phase
@@ -357,6 +359,13 @@ class GroupBreathBottomPanel:
                     callback=lambda s, a, u: self._on_inhale_num_change(u, a),
                     user_data=snap.uuid,
                 )
+                # The name Ableton shows for this number, so a drum pad can be
+                # matched without counting semitones.
+                dpg.add_text(
+                    note_label(snap.inhale_note),
+                    tag=f"gb_strip_inh_name_{snap.uuid}",
+                    color=(130, 130, 130),
+                )
 
             # Row 7: Exhale number (note or CC number)
             with dpg.group(horizontal=True):
@@ -372,6 +381,13 @@ class GroupBreathBottomPanel:
                     callback=lambda s, a, u: self._on_exhale_num_change(u, a),
                     user_data=snap.uuid,
                 )
+                # The name Ableton shows for this number, so a drum pad can be
+                # matched without counting semitones.
+                dpg.add_text(
+                    note_label(snap.exhale_note),
+                    tag=f"gb_strip_exh_name_{snap.uuid}",
+                    color=(130, 130, 130),
+                )
 
             # Row 7: hold number. 0 = silent, so no enable checkbox.
             with dpg.group(horizontal=True):
@@ -386,6 +402,13 @@ class GroupBreathBottomPanel:
                     on_enter=True,
                     callback=lambda s, a, u: self._on_hold_num_change(u, a),
                     user_data=snap.uuid,
+                )
+                # The name Ableton shows for this number, so a drum pad can be
+                # matched without counting semitones.
+                dpg.add_text(
+                    note_label(snap.hold_note),
+                    tag=f"gb_strip_h_name_{snap.uuid}",
+                    color=(130, 130, 130),
                 )
 
             dpg.add_spacer(height=4)
@@ -461,6 +484,18 @@ class GroupBreathBottomPanel:
                 current_show = dpg.get_item_configuration(cc_val_row).get("show", True)
                 if current_show != snap.cc_mode:
                     dpg.configure_item(cc_val_row, show=snap.cc_mode)
+
+            # The note names follow their numbers, wherever a change came from:
+            # this panel, a loaded track, or a device reconnecting.
+            for name_tag, value in (
+                (f"gb_strip_inh_name_{uuid}", snap.inhale_note),
+                (f"gb_strip_exh_name_{uuid}", snap.exhale_note),
+                (f"gb_strip_h_name_{uuid}", snap.hold_note),
+            ):
+                if dpg.does_item_exist(name_tag):
+                    label = note_label(value)
+                    if dpg.get_value(name_tag) != label:
+                        dpg.set_value(name_tag, label)
 
             ch_tag = f"gb_strip_ch_{uuid}"
             if dpg.does_item_exist(ch_tag):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dearpygui.dearpygui as dpg
 
 from breath_midi.config.model import ConfigModel
+from breath_midi.midi.note_names import note_name
 from breath_midi.midi.activity_bus import MidiActivityEvent
 
 
@@ -42,23 +43,15 @@ def labels_for_note(cfg: ConfigModel, channel: int, note: int) -> str | None:
 
 
 def _note_display(cfg: ConfigModel, note: int) -> str:
+    """
+    A note number, optionally with its name.
+
+    Uses the shared helper rather than its own table: this one had middle C at
+    C4, which is scientific pitch notation and one octave above what Ableton
+    writes on the pad the note is going to.
+    """
     if cfg.ui.midi_activity.show_note_name:
-        names = (
-            "C",
-            "C#",
-            "D",
-            "D#",
-            "E",
-            "F",
-            "F#",
-            "G",
-            "G#",
-            "A",
-            "A#",
-            "B",
-        )
-        o = note // 12 - 1
-        return f"{note} ({names[note % 12]}{o})"
+        return f"{int(note)} ({note_name(note)})"
     return str(int(note))
 
 
